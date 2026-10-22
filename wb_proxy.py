@@ -11651,6 +11651,9 @@ def runtime_settings_view():
         "pricing_enabled": wb_settings.pricing_enabled(ACCOUNTS_DIR),
         "auto_switch_product": wb_settings.auto_switch_product(ACCOUNTS_DIR),
         "auto_switch_products": wb_settings.auto_switch_products(ACCOUNTS_DIR),
+        # 部署级（环境变量 WB_TRANSPARENT_RETRY_WAIT），只读展示：面板不能改，
+        # 改了要重启进程才生效，混进可写设置里只会让人以为存了就有效。
+        "transparent_retry_wait": TRANSPARENT_RETRY_WAIT,
         "enable_anthropic_messages": wb_settings.enable_anthropic_messages(ACCOUNTS_DIR),
         "filter_models_by_key": wb_settings.filter_models_by_key(ACCOUNTS_DIR),
         "reasoning_effort_map": wb_settings.reasoning_effort_map(ACCOUNTS_DIR),
@@ -15880,6 +15883,23 @@ EGRESS_SLEEP_MAX = 5.0
 #: 流会把同账号的后续请求全部拖死。
 ACCOUNT_SLOT_WAIT_MAX = 2.0
 
+# --------------------------------------------------- 池子全忙/全冷却时的透明等待
+#
+# 一次请求里把所有可用账号都试过、每个都回 429，网关原本立刻把 429 交给
+# 客户端。可下游（CPA、Claude Code、各种 harness）拿到 429 只会中断这一轮，
+# 要人手动重发——而实测这些窗口大多只有几十秒，等一会儿本来就能自己继续。
+#
+# 这里在「整个池子都不可用」的几条出口上做一个有界的透明等待：每
+# TRANSPARENT_RETRY_POLL 秒重新挑一次号，只要有账号恢复就接着发这一轮请求，
+# 客户端连一个字节都还没收到，感觉不到这次重试。超过预算才真的报 429。
+#
+# 预算按「一次请求最多等这么久」算，与上游重试预算分开：上游失败那部分是
+# 秒级重试，这里是分钟级的等待，语义不同。设 0 关闭（恢复原来的立即 429）。
+TRANSPARENT_RETRY_WAIT = max(
+    0.0, float(os.environ.get("WB_TRANSPARENT_RETRY_WAIT", "30") or 0))
+#: 轮询间隔：既要让恢复的账号尽快被用上，又不能把 CPU 打满。
+TRANSPARENT_RETRY_POLL = 0.25
+
 
 def auto_switch_product_enabled():
     """Whether a 429 may rotate the outbound identity (panel setting, off by default)."""
@@ -17169,6 +17189,71 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
     # 当前这一轮已经占住、但还没交给调用方的账号名额。任何失败路径都要归还
     # （循环开头统一处理），成功路径把它绑到响应对象上后置空。
     slot_held = None
+    # 透明等待的截止时刻（见 TRANSPARENT_RETRY_WAIT）。固定账号没有「换一个」
+    # 的余地，也就没有等待的意义。
+    transparent_deadline = (time.time() + TRANSPARENT_RETRY_WAIT
+                            if TRANSPARENT_RETRY_WAIT > 0 and pinned is None
+                            else 0.0)
+    transparent_announced = False
+
+    def transparent_wait_reason():
+        """等一会儿就能继续的理由；不能等时回传空串。
+
+        只在「每个可用账号都在冷却，且最近的一个能在剩余预算内恢复」时成立：
+        日限额、手工禁用、没有账号这些情况等多久都没用，必须立刻如实上报。
+        名额占满（busy）不在这里等——那个窗口是毫秒级的，客户端按 wait=1
+        重发一次就到，按住整轮反而更慢。
+        """
+        if not transparent_deadline or POOL is None:
+            return ""
+        remaining = transparent_deadline - time.time()
+        if remaining <= 0:
+            return ""
+        enabled = [a for a in POOL.accounts
+                   if a.realm == realm and a.enabled and a.access_token
+                   and (allowed_accounts is None or a.uid in allowed_accounts)]
+        if not enabled:
+            return ""
+        waits = [a.throttle_wait(model=model) for a in enabled]
+        if not waits:
+            return ""
+        # 有账号此刻并不在冷却（wait == 0）：那这次挑不到号是日限额、手工
+        # 禁用、名额占满之类的原因，等下去不会变好，立刻如实上报。
+        if min(waits) <= 0:
+            return ""
+        soonest = min(waits)
+        if soonest > remaining:
+            return ""
+        return ("every %s account is cooling on '%s' (soonest %.1fs)"
+                % (realm, model or "-", soonest))
+
+    def wait_for_pool():
+        """进循环时整池都在冷却：原地等它恢复。回传 True 表示值得再挑一次。
+
+        只在「还没向任何账号发过请求」时使用（见调用点的 last_error/last_429
+        判断）：这一轮自己打出来的 429 不能等——重试同一个号会让上游的软限
+        阶梯继续升级（60s → 120s → 240s），越等越久。而进门前就已经在冷却
+        的池子，等的是别人的窗口，不会因为我们的等待而变长。
+
+        日限额、手工禁用、没有账号这些等多久都没用的情形回传 False。
+        """
+        nonlocal transparent_announced
+        reason = transparent_wait_reason()
+        if not reason:
+            return False
+        if not transparent_announced:
+            log("pool busy (%s); waiting up to %.0fs before answering 429"
+                % (reason, TRANSPARENT_RETRY_WAIT), level="INFO")
+            transparent_announced = True
+        time.sleep(min(TRANSPARENT_RETRY_POLL,
+                       max(0.0, transparent_deadline - time.time())))
+        # 冷却过的账号要重新参与挑选：tried 记的是「这一轮试过且失败」，而
+        # 它们失败的原因是暂时冷却，等过之后完全可用。charged 刻意不清——
+        # 它防的是「同一次请求给同一个账号记好几笔失败」。
+        tried.clear()
+        busy.clear()
+        return True
+
     def pick_account():
         """按当前 exclude/busy 选一个账号，并占住它的在飞名额。
 
@@ -17241,6 +17326,13 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
             time.sleep(min(1.5 * (transient_hits or local_net_hits), 3.0))
             account = pick_account()
         if account is None:
+            # 一个号都挑不到。如果这一轮还没向上游发过任何请求（last_error /
+            # last_429 都空），说明整池在进门前就已经被别人打进了冷却——等
+            # 它恢复，客户端看不到 429。若本轮自己已经打出过 429，就照旧立刻
+            # 上报：重试同一个号只会让软限阶梯升级（60→120→240s）。
+            if last_error is None and last_429 is None and wait_for_pool():
+                attempt -= 1
+                continue
             break
         if account.realm != realm:
             if session_key and POOL: POOL.affinity.demote(session_key, account.uid)

@@ -71,3 +71,6 @@ desktop.ini
 
 # Local Docker Compose override
 docker-compose.override.yml
+
+# 本机 start.sh 的运行日志
+server.log

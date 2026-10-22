@@ -1,0 +1,592 @@
+# workbuddy2api-hub 运维版 —— 升级与部署指南
+
+本仓库是 **WorkBuddy2API-Hub 的运维定制版**，在上游基础上叠加了本机（Firecracker microVM）部署所需的
+**本地改造**与**部署脚本**。
+
+## 仓库关系
+
+| 角色 | 仓库 | 用途 |
+|---|---|---|
+| **上游（只读参考）** | `ardeyouxipianyi/workbuddy2api-hub` | 作者原仓库，**永远从这里拉取新版本** |
+| **本仓库（origin）** | `qq928820655/workbuddy2api-hub` | 上游 + 本地改造 + 部署脚本，**升级产物同步到这里** |
+
+```
+git remote -v
+# origin    https://github.com/qq928820655/workbuddy2api-hub.git   (推送目标)
+# upstream  https://github.com/ardeyouxipianyi/workbuddy2api-hub.git (只读参考)
+```
+
+> 本仓库**私有**。运行数据（`accounts/`、`usage/`、`server.log`）已被 `.gitignore` 排除，
+> 不会随提交上传。
+
+## 一、当前基线
+
+- 基于上游 **v1.7.29**（commit `af37786`），2026-10-22 升级（v1.7.28 → v1.7.29，14 个提交）
+- 其上**恰好一个**「运维改造」提交（提交信息以 `ops:` 开头），标签 `ops-20261022b`
+- 升级时**重放这一个提交**即可
+
+> v1.7.28 → v1.7.29 的上游改动：**启动时补一次更新检查**（#589，重启后不必再手点「立即检查更新」，
+> 预算 6 次/小时）、**修 macOS/Linux 一键更新必然回滚**（解包丢 755 权限 → 重启 EACCES）、
+> **修保存 API Key 时丢掉 `accounts` / `concurrency_limit`**（#592），以及我们自己提的四个
+> 手机端看板 PR（#585 打卡类名、#586 用量统计每项一行、#587 账号卡出口/权重同行、
+> #588 统计条积分独占一行）。rebase 冲突只有 `dashboard.html` 3 处 + `README.md` 2 处，
+> **全是注释措辞、套件计数与 `Unreleased` 条目**，无逻辑冲突。
+
+> 想随时看「本地到底改了哪些东西」：
+> ```bash
+> git show ops-20261022b              # 完整 diff
+> git diff upstream/main ops-20261022b # 同上，指定区间
+> ```
+
+## 二、本地改造清单（从上游拉新版后必须重做）
+
+**重要**：本地改造是**代码逻辑/部署编排**，不是配置。升级到上游新版后必须重新叠加，否则会退化。
+而且**上游每个版本都要重新确认**——它可能已经自己修了（v1.7.8 收编了旧 max_tokens clamp、
+v1.7.9 的 `08c274d` 收编了旧 P0 归位补丁）。
+
+| # | 改造 | 不改的后果 |
+|---|---|---|
+| ~~1~~ | ~~`_dispatch_chat_post` 归位 Handler 类~~ | **已被上游收编**（v1.7.9 `08c274d`），勿重打；见下方「上游可能已自行修复」 |
+| ~~2~~ | ~~Anthropic `input_tokens` 缓存口径~~ | **已被上游收编**（v1.7.17 `bf921a6` / PR #479），勿重打；`grep -c "prompt_tokens - cache_read - cache_creation" wb_proxy.py` 应为 1 |
+| ~~3~~ | ~~看板移动端 3a–3h 全部八项~~ | **已被上游收编**（v1.7.17–v1.7.20，PR #480/#481/#482/#496/#497/#498/#501），勿重打；判定命令见下方 3a–3h 各节 |
+| ~~3i~~ | ~~打卡按钮组补回 `tb-checkin` 类~~ | **已被上游收编**（v1.7.29 / PR #585），勿重打；`grep -c "tb-group tb-checkin" dashboard.html` 应为 1（上游自带） |
+| 4 | 部署脚本 + `.gitignore` + 显式开启 Messages（`start.sh` 等） | 服务不便启停；**v1.7.8 起 Anthropic Messages 默认关闭**，客户端会 400 |
+| 5 | 账号级并发上限（`wb_settings.py` + `wb_proxy.py` + `dashboard.html`） | 两个大上下文会话落到同一账号时上游按账号计 token 会 429，换号后缓存归零、首字 1.5s → 5-6s。默认 0 = 不限，与上游行为一字不差 |
+| 6 | 更稳的会话粘滞键（`wb_settings.py` + `wb_proxy.py` + `dashboard.html`） | 会话键只用 [system, 首条 user]，开场白相同的两个会话共享绑定槽、每轮互换账号，缓存每轮归零。默认关，关着时与上游逻辑一字不差 |
+| 7 | 整池冷却时的透明等待（`wb_proxy.py` + `start.sh`） | 一次短暂 429 会让下游（CPA / Claude Code / harness）中断整轮、要人手动重发。默认等 30s，窗口内恢复就接着发，客户端看不到 429 |
+| ~~8~~ | ~~看板用量统计窄屏排版（仅 ≤640px）~~ | **已被上游收编**（v1.7.29 / PR #588），勿重打；判定：`grep -c "#pageAnalytics .kpi .s .kvi{display:block}" dashboard.html` 应为 1（上游自带） |
+
+### 补丁 5：账号级并发上限（默认关闭）
+
+**要解决的问题**：上游按「账号 + 分钟」计 token，而一个大上下文会话单请求就带十几万 token。
+两个会话同时压在一个账号上很容易过百万 token/分钟 → 上游 429 → 网关停放该账号并换号 →
+新账号没有这段对话的前缀缓存 → 缓存命中率 99% → 0，首字 1.5s → 5-6s。
+根因不在网关并发槽位（全局闸门 96 槽没满），也不在 CPA。
+
+**设计**：可选开关，默认 `0`（不限）——关闭时 `account_slot_acquire()` 恒真且不记账，
+派发路径与上游逐字节一致。设为 `1..10` 时每个账号同时最多接这么多个请求；
+名额满时**换一个账号**（不是排队），保证两个会话各走各的账号、各自保留缓存。
+
+**三个文件**：
+
+1. `wb_settings.py`：`ACCOUNT_MAX_CONCURRENT_KEY` / `ACCOUNT_MAX_CONCURRENT_MAX=10` /
+   `account_max_concurrent(accounts_dir)`（0=不限，坏数据回退 0）/
+   `set_account_max_concurrent(accounts_dir, value)`（严格 int，0..10，否则 `ValueError`）。
+2. `wb_proxy.py`：
+   - `_ACCOUNT_INFLIGHT` / `_ACCOUNT_INFLIGHT_LOCK`、
+     `account_slot_acquire(account, limit=None)` / `account_slot_release(account)` /
+     `account_inflight_snapshot()`、`ACCOUNT_SLOT_WAIT_MAX = 2.0`；
+   - `bind_account_slot_to_response(response, account)`：名额挂到响应对象的 `close()` 上，
+     一次性保护防重复扣减。**必须占到 body 读完**，不能停在「拿到响应头」——流式回复拿到头
+     之后还要读几十秒，那段时间上游仍算该账号在跑。`response is None` 时立刻归还（否则泄漏）。
+   - `open_upstream()`：新增 `busy` 集合（与 `tried` 分开，名额满 ≠ 失败，不影响熔断/亲和）、
+     `slot_held` 标记、内嵌 `pick_account()`（循环换号直到占到名额，全满返回 None）；
+     循环开头统一归还、成功路径绑定后置空、循环耗尽后兜底归还；
+     `pinned` / `refresh_uid`（固定账号没法换号）用 `ACCOUNT_SLOT_WAIT_MAX` 有界等待。
+   - 名额全满时报 `RateLimited`，文案明说「每个可用账号都在跑 N 个请求」——
+     不能落到「全部停用/冷却/过期」，否则排查的人会去查账号状态。
+   - `/settings/save` 接受 `account_max_concurrent`；`runtime_settings_view()` 返回
+     `account_max_concurrent` / `account_max_concurrent_max` / `account_inflight`。
+3. `dashboard.html`：设置页新增「账号级并发上限」数字输入（0–10）+ 保存按钮
+   （`saveAccountConcurrent()`），`loadSettings()` 里回填；中英对照表同步。
+
+**验证**：`python3 tests/_test_account_concurrency.py`（19 个用例，含真实 `open_upstream` +
+打桩池的调度测试：满号跳过、名额占到 close、全满报池忙、失败路径不泄漏、关闭时行为不变）。
+
+### 补丁 6：更稳的会话粘滞键（默认关闭）
+
+**要解决的问题**：`affinity_route()` 只用 `msgs[:2]`（system + 首条 user）算会话键。
+两个开场白相同的会话（同一客户端、同一模板首问）算出同一个 `pfx-xxx`，共享同一个
+`SessionAffinity` 绑定槽 → 每轮互相覆盖 → 两个会话轮流换账号 → 缓存每轮归零。
+`account_max_concurrent` 对此**无效**：它只保证两个请求不在同一时刻撞同一号，
+下一轮照样换。
+
+**设计**：`affinity_stable_key_enabled` 开关（默认关）。关着时 `affinity_route()`
+与上游一字不差；打开后哈希头从 `msgs[:2]` 扩到 `msgs[:3]`（多算首条 assistant 回复），
+两个会话从第 2 轮起算出不同键、各走各的账号。同一段对话每轮仍算出同一个键（粘滞成立）。
+第 1 轮还没有 assistant 回复，仍退回前两条消息，两会话会撞一次——已知且可接受。
+
+**三个文件**：
+
+1. `wb_settings.py`：`AFFINITY_STABLE_KEY_ENABLED_KEY` /
+   `affinity_stable_key_enabled()`（只有 JSON `true` 才算开）/ 
+   `set_affinity_stable_key_enabled()`（**严格** `isinstance(enabled, bool)`，
+   `bool("false")` 是真值，静默转换会把开关悄悄打开）。
+2. `wb_proxy.py`：`affinity_stable_key_enabled()` 包装器；`affinity_route()` 里
+   `if affinity_stable_key_enabled() and len(msgs) > 2: head = msgs[:3]`；
+   `/settings/save` 与 `runtime_settings_view()` 各加一处。
+3. `dashboard.html`：设置页「更稳的会话粘滞键」勾选框 + `saveAffinityStableKey()`，
+   `loadSettings()` 回填；中英对照表同步。
+
+**验证**：`python3 tests/_test_affinity_stable_key.py`（14 个用例：开关读写严格性、
+关闭时键等于老算法、打开后同开场白分开、同一对话每轮稳定、可回退、池子里两会话各钉各号）。
+
+**回退**：面板取消勾选即可，立刻回到上游逻辑，无需改代码。
+
+### 补丁 6.5：流式回复只带一个 chunk id（`wb_proxy.py`）
+
+**要解决的问题**：一次流式回复同时带**两个 chunk id**——上游原始帧用上游 id（`01a1…`），
+而网关重写的正文帧用自己的 `chatcmpl-wb-*`，于是同一轮回复在客户端看来是两条交错的流。
+思考那条流**永远不带 `finish_reason`**，按 id 管理流状态的客户端（很多 SDK / harness 都是）
+会一直等它 → 界面永久停在「生成回复中」，思考区不再更新，而网关日志里这一轮几秒前就完成了。
+用户体感是「不是慢，是彻底没反应、后台也没反应」。
+
+**设计**：出站前把每一帧的 id 统一成网关自己的 id（思考、正文、结束、usage 帧一致）。
+
+```python
+# _chat_stream_response() 里，clean_chunk() 之前
+if isinstance(maybe, dict) and maybe.get("id"):
+    maybe["id"] = stream_chunk_id
+```
+
+**验证**：`python3 tests/_test_stream_single_id.py`（15 项断言）。真机复现：修复前
+`2 distinct ids`、首条流 `finish=None`；修复后 `1 distinct id`、`finish=stop`。
+调试脚本 `/tmp/opencode/finalproof.py <port>` 可直接对比。
+
+**状态**：已提上游 **PR #607**（未合）。若上游合入 → 本补丁作废，勿重打
+（判定：`grep -c "One response must carry one id" wb_proxy.py`，上游合入后由上游自带）。
+
+### 补丁 7：整池冷却时的透明等待（默认 30 秒）
+
+**要解决的问题**：上游偶尔会在短时间内把整个池子都打成「模型冷却」（每个号 60s 起）。
+上游原来的行为是立刻回 429，但**下游拿不到「这是暂时的」这个信息**——CPA、Claude Code、
+各种 harness 收到 429 只会中断这一轮，要人手动重发。而这些窗口大多只有几十秒，
+等一会儿本来就能自己继续。
+
+**设计**：`WB_TRANSPARENT_RETRY_WAIT`（默认 30 秒，设 0 关闭）。只在**进循环时**
+整池已经在冷却的情况下等：每 `TRANSPARENT_RETRY_POLL`（0.25s）重新挑一次号，
+有号恢复就接着发这一轮——此时客户端连一个字节都还没收到，感觉不到这次重试。
+超过预算才真的报 429。
+
+**刻意不等的三种情况**（等下去不会变好，必须立刻如实上报）：
+
+- 日限额 / 模型额度耗尽 / 手工禁用 / 没有账号：`transparent_wait_reason()` 只看
+  `throttle_wait()`，这些原因会让某个账号 `wait == 0`，直接回空串；
+- **本轮自己打出来的 429**（`last_error` / `last_429` 非空）：重试同一个号只会让
+  上游的软限阶梯继续升级（60s → 120s → 240s），越等越久；
+- 固定账号（`/u/<ref>/`、令牌刷新后的原地重试）：没有「换一个」的余地。
+
+**两个文件**：
+
+1. `wb_proxy.py`：`TRANSPARENT_RETRY_WAIT` / `TRANSPARENT_RETRY_POLL` 常量；
+   `open_upstream()` 内 `transparent_deadline`、`transparent_wait_reason()`、
+   `wait_for_pool()`（清 `tried`/`busy` 后重挑，**不清 `charged`**——它防的是同一次
+   请求给同一个账号记好几笔失败）；`account is None` 分支改成有界等待；
+   重试循环从 `for _attempt in range(max_attempts)` 改成 `while` + 手动计数
+   （等待不消耗尝试次数）；`runtime_settings_view()` 只读暴露 `transparent_retry_wait`。
+2. `start.sh`：`WB_TRANSPARENT_RETRY_WAIT="${WB_TRANSPARENT_RETRY_WAIT:-30}"` 并 export。
+3. `dashboard.html`：「自动切换出站身份」卡片加一行说明，读 `transparent_retry_wait` 展示。
+
+**验证**：`python3 tests/_test_transparent_retry.py`（10 个用例，假时钟：等到恢复后成功、
+预算外不空等、总等待不超预算、日限额/无账号立刻上报、设 0 恢复旧行为、固定账号不等、
+日志只打一次、等过之后能重新挑到同一个号）。
+
+**回退**：`WB_TRANSPARENT_RETRY_WAIT=0` 重启即回到上游行为。
+
+### 补丁 8：【已被上游收编，勿重打】看板用量统计窄屏排版（仅 ≤640px）
+
+**要解决的问题**：窄屏（3 列、每卡约 80–100px）沿用桌面那两行副行时，「输入/输出/思考/缓存」
+会被截断成「等...」或长短不齐；第一行三张卡的副行行数不同（2/1/2 行）、「生成速度」还没有
+占比色条，sparkline 各自紧跟文字往下排，第二三张的图比第一张高、卡片底部空一块。
+
+**设计**：只改**排版**，字号/颜色/文案/分隔符口径与桌面端一致（**不缩小字号**）：
+
+1. 副行按「桌面端原本的行」分组，每项一个 `.kvi`。桌面端 `.kline` 是 block、`.ksep`
+   显示「 · 」，渲染结果与上游逐字一致；窄屏 `.kvi` 各占一行、`.ksep` 隐藏（独占一行后
+   分隔符会孤零零落在行首）。
+2. 第一行三张卡改成纵向 flex，`.spark` 用 `margin-top:auto` 贴到卡片底部 → 三张图等高
+   44px、顶边底边对齐。缺对比行/色条的卡只是上方文字短一点，图仍在同一条线。
+3. `.kvi b`（数值+单位）在第一行三张卡里 `white-space:nowrap`，避免「179」与「tok/s」
+   在数字和单位之间断开。
+
+**两个文件**：
+
+1. `dashboard.html`（CSS，全部在 `@media (max-width:640px)` 内 + 一条桌面端 `.kline{display:block}`）：
+   `#pageAnalytics .kpi .s .kline/.kvi/.ksep` 三条窄屏规则、
+   `#pageAnalytics .kpi.big:nth-child(-n+3){display:flex;flex-direction:column}`、
+   `... .spark{margin-top:auto}`、`... .s .kvi b{white-space:nowrap}`。
+2. `dashboard.html`（JS `renderKpis()`）：`subItems(lines)` 把每条桌面行包成 `.kline`、
+   每项包成 `.kvi`、项间 `.ksep`；`kTokensSub` / `kReqsSub` / `kSpeedSub` 都改用它。
+
+**验证**：CDP 逐属性对照（fontSize / color / display / top / height / width）——
+1280/1100/900/700/641px 与「注入上游 CSS」的同一页面 **IDENTICAL**；390px 下
+`req items=2 lines=2`、`spd items=4 lines=4`、三张 `sparkTop` 相同且 `sparkH=44`。
+
+**回退**：删掉那个 `@media (max-width:640px)` 块与 `.kline` 规则，JS 换回 `<br>` 拼接。
+
+下面逐项给出**改哪个文件、哪个函数、改成什么**，可直接照抄。
+
+### 补丁 1：【已被上游收编，勿重打】`_dispatch_chat_post` 归位 Handler 类
+
+上游 v1.7.8 的每 key 并发改造（#359）曾把该方法错误缩进成模块级 `_release_key_slot` 里的嵌套函数，
+导致 `/v1/chat/completions`、`/v1/responses` 全部 `AttributeError` 断连（预览代理表现为 530）。
+**上游 v1.7.9 的 `08c274d` 已把并发 helper 移回模块级、方法归位 Handler 类**，本仓库不再携带此补丁。
+若未来版本又复现（判定命令见下），按同样方式归位即可：
+
+```bash
+python3 -c "import wb_proxy; print(hasattr(wb_proxy.Handler,'_dispatch_chat_post'))"   # 必须 True
+```
+
+### 补丁 2：【已被上游收编，勿重打】Anthropic `input_tokens` 缓存口径（`wb_proxy.py`）
+
+> **2026-10-20 起作废**：上游 v1.7.17 `bf921a6`（PR #479）已合并同一改法，`_anthropic_usage` 内直接是
+> `out["input_tokens"] = max(0, prompt_tokens - cache_read - cache_creation)`。升级后只需判定
+> `grep -c "prompt_tokens - cache_read - cache_creation" wb_proxy.py` 为 1，不要重复改。以下保留作历史参考。
+
+**位置**：函数 `def _anthropic_usage(usage):`
+**背景**：上游 `prompt_tokens` 是 OpenAI 口径的**总输入（含缓存命中）**；Anthropic 客户端按
+`input_tokens + cache_read + cache_creation` 计算上下文，直接透传会把缓存算两次。
+**改法**：先算 `cache_read/cache_creation`，再用 `max(0, prompt_tokens - cache_read - cache_creation)`
+得出 `input_tokens`：
+
+```python
+def _anthropic_usage(usage):
+    # ...（上游原有的 out 初始化与 `if not isinstance(usage, dict): return out` 保持不变）...
+
+    def _as_int(value):
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    prompt_tokens = _as_int(usage.get("prompt_tokens"))
+    out["output_tokens"] = _as_int(usage.get("completion_tokens"))
+    cached = usage.get("prompt_cache_hit_tokens")
+    if cached is None:
+        cached = _best_cached_tokens(usage)
+    cache_read = _as_int(cached)
+    cache_creation = _as_int(usage.get("prompt_cache_write_tokens"))
+    out["cache_read_input_tokens"] = cache_read
+    out["cache_creation_input_tokens"] = cache_creation
+    # 上游 prompt_tokens 是 OpenAI 口径的总输入（含缓存命中）。Anthropic 客户端按
+    # input + cache_read + cache_creation 计算上下文，直接透传会把缓存算两次。
+    out["input_tokens"] = max(0, prompt_tokens - cache_read - cache_creation)
+    # ...（service_tier 等后续逻辑不变）...
+```
+
+**只改 Anthropic `/v1/messages`**；OpenAI `/v1/chat/completions`、`/v1/responses` 不动。
+**判定**：`grep -n "max(0, prompt_tokens - cache_read - cache_creation)" wb_proxy.py`
+
+### 补丁 3：【已被上游收编，勿重打】看板 `dashboard.html` 移动端（3a–3h）
+
+> **2026-10-20 起作废**：上游 v1.7.17–v1.7.20 已把我们提的 7 个移动端 PR 全部合并
+> （#480 缝隙、#481 header、#482 今日活动、#496 KPI delta、#497 账号卡徽章、#498 打卡按钮、#501 积分格）。
+> 升级后逐项判定即可，全部命中就说明无需重打。唯一例外见 **3i**（#498 的类名在合并时丢了，需补一行）。
+> 以下保留作历史参考。
+
+**3a. 二级导航 14px 缝隙**——`--page-nav-top` 恒为 `header 高度 + 14`。窄屏（≤860px）下二级导航条
+（`.page-sidebar`）同样吸顶在 header 下方，那 14px 就成了缝隙，滚动时正文从缝里穿过。
+改两处内联脚本，窄屏不留缝（0）、宽屏保持 14：
+
+```javascript
+function pageNavHeaderOffset(page){
+  const header = document.querySelector('header');
+  const narrow = window.matchMedia('(max-width:860px)').matches;
+  // 窄屏下二级导航条紧贴 header 底边（见 syncPageNavOffset），不再留 14px 缝，
+  // 否则内容会从两条吸顶栏之间的缝隙里穿过去。
+  const base = (header ? header.offsetHeight : 64) + (narrow ? 0 : 14);
+  const sidebar = page ? page.querySelector('.page-sidebar') : null;
+  if(sidebar && narrow){
+    return base + sidebar.offsetHeight + 10;
+  }
+  return base;
+}
+
+function syncPageNavOffset(){
+  const header = document.querySelector('header');
+  const narrow = window.matchMedia('(max-width:860px)').matches;
+  const top = (header ? header.offsetHeight : 64) + (narrow ? 0 : 14);
+  document.documentElement.style.setProperty(PAGE_NAV_TOP_VAR, top + 'px');
+}
+```
+
+**3b. header 四元素同行（≤640px）**——标题、GitHub、语言、主题全在顶部一行，页签独占下一整行。
+在 `/* ===== Phone: ≤640px ===== */` 媒体块里，把上游的 `.header-left`/`.header-right`/`h1`/
+`.main-nav`/`.meta` 几条规则改成（`display:contents` 让子项直接参与 header 的 flex 排布，
+只在本断点生效，PC 不受影响）：
+
+```css
+  .header-left,.header-right{display:contents!important}
+  h1{font-size:15px;flex:1 1 auto;min-width:0;order:1}
+  .gh-link{width:36px;height:36px;flex-shrink:0;order:2}
+  .lang-btn{order:3}
+  .theme-dropdown-wrap{order:4}
+  .main-nav{display:flex;width:100%;flex-basis:100%;gap:2px;padding:3px;order:5;overflow-x:auto;
+    -webkit-overflow-scrolling:touch;scrollbar-width:thin}
+  .meta{width:100%;text-align:left;font-size:11px;line-height:1.5;order:6}
+```
+（`h1 span`、`.theme-btn` 两条上游已有，保留即可。）
+
+**~~3c. 账号卡积分格~~【已被上游收编，勿重打】**——上游 v1.7.16 自带
+`.credit-stack` 两行结构（`.credit-main` 数值行 + `.credit-meta` 徽章行，明细按钮独占一行），
+本机旧补丁（`.cred-val`/`.cred-sub`/`.cred-sub-label` 三段 CSS + credText 模板）已**作废删除**。
+
+**~~3d. 概况卡布局~~【已被上游收编，勿重打】**——上游 v1.7.16 重设计了国际版/国内版概况卡：
+大数字改为「可用积分」（`tabIntlAvailCred`，限额护栏口径）、`/ 总积分`、账号数内联、
+KeyBadge 移到上方「版本中枢控制栏」。本机旧 3d 挪位补丁已**作废删除**（v1.7.16 升级时
+4 处冲突均采用上游新结构，并修复 credit-row 少一个 `</div>` 的闭合）。
+
+**3e. 移动端账号卡「今日活动」行内化（≤640px）**——上游默认把该格排成两行
+（::before 标签一行、状态徽章 `align-items:stretch` 又独占一行），浪费一整行。
+在 `≤640px` 媒体块里把 `td:nth-child(4)`（今日活动）改回行内：
+
+```css
+  table.account-cards td:nth-child(4){order:4;grid-column:span 6;justify-content:flex-start;flex-wrap:wrap;gap:4px 6px}
+```
+
+效果：`今日活动 [今日活跃·成功]` 同排一行（国内版双徽章靠 flex-wrap 自动换行）。
+桌面表格视图不受影响（规则在媒体块内）。
+
+**判定**：`grep -n 'td:nth-child(4){order:4;grid-column:span 6;justify-content:flex-start' dashboard.html`（1 处）。
+
+**3f. 移动端三处真机反馈修正（≤640px，2026-10-19）**——浏览器手机模拟测不出、真机才复现：
+
+1. **header 又有一个图标另起一行**：真机标题字宽更大，`h1` 的 `min-content` 把 GitHub/语言/主题挤下去。改 `h1{flex:1 1 0%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}`，并给 `.lang-btn`/`.theme-dropdown-wrap` 加 `flex-shrink:0`。
+2. **数据看板 KPI 标题被对比百分比挤成竖排**：`.delta` 原在标题行内。把 4 个 `delta*` span 移出 `.k`、放进数值 `.v` 下方的 `.kdelta` 行；标题加 `white-space:nowrap`。同时「API 等价花费」改「API 等价」（英文 `API-equivalent`、繁体 `API 等價`）。
+3. **账号卡版本/状态徽章挪到账号名右侧同行**：手机卡里隐藏 `td:nth-child(1)`（版本）与 `td:nth-child(3)`（状态）两列，在 `.acct-name-row` 末尾加 `.acct-mobile-badges`（内含版本+状态徽章，桌面 `display:none`）。
+
+**判定**：`grep -c "acct-mobile-badges" dashboard.html`（≥3）、`grep -c "kdelta" dashboard.html`（≥5）、`grep -c "API 等价</div>" dashboard.html`（1）。
+
+**3g. 移动端打卡按钮与「添加」同行居右（≤640px，2026-10-19）**——「每日活跃打卡 (国际版)」/「Buddy 加油站签到」原先在独立 `tb-group` 里、手机端另起一行。把该组移到「添加」之后并加 `.tb-checkin`，手机端 `margin-left:auto` 靠右；桌面端 margin 为 0，仅按钮顺序变化。
+
+**判定**：`grep -c "tb-checkin" dashboard.html`（2：HTML + CSS）。
+
+**3i.【已被上游收编，勿重打】打卡按钮组 `tb-checkin` 类（≤640px）**——上游合并 #498 时，CSS 规则
+`#accountsBody .toolbar .tb-checkin{margin-left:auto;flex-shrink:0}` 进去了，但 HTML 里的类名被并成
+了 `<div class="tb-group">`，规则悬空，手机端打卡按钮回到独立一行。**我们提的 PR #585 已于 v1.7.29
+合入上游**（`9425263`），本地不再需要补。
+
+**判定**：`grep -c "tb-group tb-checkin" dashboard.html`（1）。
+
+**3h. 移动端积分格「积分 / 明细」错行（≤640px，2026-10-19）**——账号卡第 6/7/8 列用 `flex-direction:column-reverse` 把 `::before` 列标签排到底部，导致「积分」标签与「明细」按钮分处两行。第 7 列（积分）隐藏列标签，改在 `.credit-meta` 上用 `::before` 生成「积分」，与明细同行；数值行在上。
+
+```css
+  table.account-cards td:nth-child(7)::before{content:none}
+  table.account-cards td:nth-child(7) .credit-meta::before{content:'积分';font-size:10px;color:var(--dim);font-weight:600}
+```
+
+**判定**：`grep -c "td:nth-child(7) .credit-meta::before" dashboard.html`（1）。
+
+> **⚠️ 提 PR 不要切主工作区分支**：本服务实时读取部署目录的 `dashboard.html`，`git checkout` 到基于上游的 PR 分支会让线上立刻丢失全部本地补丁（样式「回退」）。用 `git worktree add /tmp/opencode/wb-pr -b tmp/xxx upstream/main` 在独立目录做 PR。
+
+**判定**：`grep -n "narrow ? 0 : 14" dashboard.html`（2 处）、
+`grep -c "display:contents" dashboard.html`（≥1）、
+`grep -c "cred-sub" dashboard.html`（**必须 0**，旧 3c 已删）、
+`grep -c "credit-stack" dashboard.html`（≥3，上游自带）。
+
+### 补丁 4：部署编排（**本机新增，不是改上游**）
+
+这些是上游没有、我们新增/修改的内容，升级时按下面的状态保证它们仍在：
+
+- `start.sh` / `stop.sh`：启停脚本（**不含硬编码密码**，支持 `WB_PORT` / `WB_PANEL_PASSWORD` /
+  `WB_TZ` / `WB_ENABLE_ANTHROPIC_MESSAGES`）。`start.sh` 需设：
+  ```bash
+  WB_ENABLE_ANTHROPIC_MESSAGES="${WB_ENABLE_ANTHROPIC_MESSAGES:-1}"
+  export TZ WB_ENABLE_ANTHROPIC_MESSAGES
+  ```
+  **原因**：上游 `afab635`（v1.7.8）因 Messages 转换会丢 `cache_control`、缓存命中和积分消耗
+  存疑，**默认关闭** `/v1/messages`。本机一直对外提供该接口，故在这里显式开启以保持行为不变
+  （设 `WB_ENABLE_ANTHROPIC_MESSAGES=0` 可关闭）。
+- **并发上限（2026-10-21，`start.sh`）**：上游 `wb_proxy.py:51` 的
+  `WB_MAX_CONCURRENT_CHAT` 默认 **32**，与账号数无关；槽满后排队 `WB_CHAT_SLOT_WAIT`
+  （默认 30s）就返回 503。本机 24 个账号共用 32 个槽偏紧，实测 120 并发长请求时有
+  41 个 503。`start.sh` 里按「账号数 × 4」放大：
+  ```bash
+  WB_MAX_CONCURRENT_CHAT="${WB_MAX_CONCURRENT_CHAT:-96}"
+  WB_CHAT_SLOT_WAIT="${WB_CHAT_SLOT_WAIT:-60}"
+  export ... WB_MAX_CONCURRENT_CHAT WB_CHAT_SLOT_WAIT
+  ```
+  验证：80 并发短请求 **80/80 成功**、wall 2.4s、峰值 100 线程、0 个 503；
+  `tr '\0' '\n' < /proc/<pid>/environ | grep WB_MAX` 应为 96。
+  **调更高的代价**：上限只是网关侧闸门，真正的瓶颈是上游账号级 429 —— 压测时
+  单个账号被打到 429 并冷却 60→120s（`account <uid> throttled ... retry in 120s`）。
+  并发再高只会让更多账号进入冷却，不会提升有效吞吐。**注意：不要用长请求做压力
+  测试**，会长时间占满槽位、拖慢真实用户请求（2026-10-21 踩过）。
+- `.gitignore`：上游自带一份，我们**追加**忽略 `server.log`。
+
+### 补丁 5：测试期望值（`tests/`）
+
+补丁 2 改了 usage 口径，两个测试的期望值要同步（否则测试会「正确地」报错）：
+
+- `tests/_test_anthropic_http.py`：两处 `input_tokens == 11` → **`== 7`**（原 11 含缓存 3+1）
+- `tests/_test_anthropic_messages.py`：一处 `"input_tokens": 10` → **`"input_tokens": 4`**
+  （该用例 `cache_read=4, cache_creation=2`，原 10 含缓存 6）
+
+### 一次性总览：本地全部改动 = 那一个 `ops:` 提交
+
+以上仍在生效的 4 / 5 / 6 / 6.5 / 7 全部包含在标签 `ops-20261022b` 指向的那个 `ops:` 提交里
+（另有独立提交 `8a227bc` 携带 6.5）。升级时**优先用第三节的 rebase 自动重放**；
+只有冲突或想手改时，才按上面逐项对照。
+
+### 上游可能已自行修复——每版都要先确认
+
+拉取新版后先看上游是否已经做了同样的修复，避免重复：
+```bash
+git log upstream/main --oneline -30
+git log upstream/main -p -- wb_proxy.py | grep -n "input_tokens\|max_output_tokens\|ANTHROPIC_MESSAGES\|_dispatch_chat_post"
+```
+
+- **已被上游收编（不要重打）**：
+  - gpt-* 的 `max_tokens ≤ 15 → 400` 下限问题：上游 `50ddd72`（v1.7.8）已在
+    `build_upstream_body` 里对 `gpt-` 前缀模型 clamp 到 16。**旧补丁与
+    `tests/_test_max_output_tokens.py` 已作废**。
+  - `_dispatch_chat_post` 归位 Handler 类：上游 `08c274d`（v1.7.9）已修，**本仓库不再携带**
+    （见补丁 1）。
+  - 账号卡积分格两行结构：上游 v1.7.16 自带 `.credit-stack`（`.credit-main`+`.credit-meta`），
+    **旧补丁 3c 已作废**（见补丁 3）。
+  - 概况卡布局：上游 v1.7.16 重设计（大数字=可用积分、KeyBadge 入上方控制栏），
+    **旧补丁 3d 已作废**（见补丁 3）。
+  - `/v1/messages` 的开关：上游 v1.7.9 起**设置页可开关**（`enable_anthropic_messages` 落盘），
+    判定逻辑是「面板设置 || `WB_ENABLE_ANTHROPIC_MESSAGES` 环境变量」，两者任一为真即启用；
+    本仓库仍保留 start.sh 的环境变量默认开启（补丁 4）。
+  - `/v1/messages` 的 `input_tokens` 双计：上游的处理是**默认关闭**该入口（`afab635`），
+    并未改口径。我们选择**开启并保留补丁 2**（见补丁 4）。
+- **上游 v1.7.8 曾有的缺陷 `_dispatch_chat_post` 缩进错误**：v1.7.9 `08c274d` 已修。
+  每次升级仍建议按补丁 1 的判定命令自检一次，若复现则按同样方式归位。
+- 若上游某版**自己修了** `_anthropic_usage` 的缓存口径 → 跳过补丁 2，并回退补丁 5 的期望值。
+- 若上游某版**自己修了**二级导航间隙（`narrow ? 0 : 14` 那种判断）→ 跳过补丁 3a。
+- 若上游把 `_dispatch_chat_post` / `_anthropic_usage` / `pageNavHeaderOffset` **改名或搬走** →
+  rebase 会冲突；按新位置套用同样逻辑。
+
+## 三、从上游升级的标准流程
+
+本仓库 = 「上游 + 一个 `ops:` 提交」，所以升级最干净的做法是 **rebase**（把 `ops:` 提交重放到上游新版之上）。
+
+```bash
+cd /workspace/workbuddy2api-hub
+
+# 0) 备份运行数据（补丁不含数据，稳妥起见）
+BK="/tmp/opencode/wb-backup-$(date +%Y%m%d_%H%M%S)"; mkdir -p "$BK"
+cp -a accounts usage "$BK/" 2>/dev/null
+git bundle create "$BK/pre-upgrade.bundle" --all >/dev/null; echo "备份 -> $BK"
+
+# 1) 拉上游新版本
+git fetch upstream --tags
+git log --oneline -1 upstream/main
+
+# 2) 把本地 ops 提交重放到上游新版之上
+git rebase upstream/main
+#   - 若提示冲突：按第二节 1–4 手动解决（冲突通常就在补丁涉及的那几行），
+#     然后 `git add <文件> && git rebase --continue`
+#   - 想放弃重来：`git rebase --abort`
+
+# 3) 逐项确认补丁仍在（对照第二节的「判定」命令）
+grep -c "account_slot_acquire" wb_proxy.py                  # 补丁 5，应 >= 7
+grep -c "affinity_stable_key_enabled" wb_proxy.py wb_settings.py   # 补丁 6，应 >= 11 / 4
+grep -c "One response must carry one id" wb_proxy.py        # 补丁 6.5，应 1（上游合入 #607 后由上游自带）
+grep -c "transparent_wait_reason" wb_proxy.py               # 补丁 7，应 2
+grep -c "narrow ? 0 : 14" dashboard.html                    # 补丁 3a，应 2 处
+grep -c "tb-group tb-checkin" dashboard.html                # 3i，上游 v1.7.29 起自带，应 1
+grep -n "WB_ENABLE_ANTHROPIC_MESSAGES" start.sh             # 补丁 4
+
+# 4) 依赖：本仓库纯标准库、无 requirements.txt；若上游新增依赖则 pip 装（本机走清华源）
+
+# 5) 跑测试（见第五节；本机基线为「除下述既有失败外全过」）
+python3 tests/run_all.py --jobs 2 --timeout 300
+python3 tests/_test_account_concurrency.py     # 补丁 5，24 例
+python3 tests/_test_affinity_stable_key.py     # 补丁 6，14 例
+python3 tests/_test_stream_single_id.py        # 补丁 6.5，15 断言
+python3 tests/_test_transparent_retry.py       # 补丁 7
+
+# 6) 重启服务并验证（见第五节）
+./stop.sh && sleep 3 && ./start.sh
+
+# 7) 把升级后的产物同步回本仓库（rebase 改写了历史，用 --force-with-lease）
+git add -A && git commit --amend --no-edit      # 保持「单一 ops 提交」
+git push --force-with-lease origin main
+git tag -f -a ops-$(date +%Y%m%d) -m "ops baseline $(date +%F)" && git push --force origin --tags
+```
+
+**备选方案**（不想改写历史时）：
+
+```bash
+# 方案 B：merge（产生合并提交，可普通 push，不必 force）
+git merge upstream/main
+# 方案 C：cherry-pick 当前 ops 提交到新的上游基线
+git checkout -b upgrade upstream/main
+git cherry-pick ops-20261022b
+git checkout main && git merge upgrade
+```
+
+> **关键点**：无论哪种方式，**升级后产物必须推回 origin**，这样本仓库始终是
+> 「可直接部署」的完整状态，以后从本仓库 `git clone` 即可用。
+
+## 四、部署（从本仓库直接下载使用）
+
+```bash
+git clone https://github.com/qq928820655/workbuddy2api-hub.git
+cd workbuddy2api-hub
+
+# 首次：设置面板密码（写入 accounts/settings.json，PBKDF2 存储；脚本不硬编码密码）
+WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
+# 之后重启可省略密码：
+./start.sh
+
+# 停止
+./stop.sh
+```
+
+环境变量：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `WB_PORT` | `8788` | 监听端口 |
+| `WB_PANEL_PASSWORD` | 无 | 面板密码，**仅首次设置时需要** |
+| `WB_TZ` | `Asia/Shanghai` | 时区；调度器按此排程（本机系统时区是 UTC，必须设对） |
+| `WB_ENABLE_ANTHROPIC_MESSAGES` | `1` | 是否启用 `/v1/messages`。上游 v1.7.8 起**默认关闭**，本脚本默认开启 |
+
+运行数据目录（均被 `.gitignore` 排除，不随仓库分发）：
+- `accounts/` —— 账号凭证（`*.json`）+ `settings.json`（面板密码/API key 哈希）
+- `usage/` —— 用量流水 `usage.jsonl`
+
+访问：`/`（看板）、`/health`、`/v1/models`、`/v1/chat/completions`、`/v1/responses`、
+原生 Anthropic `/v1/messages`（需 `WB_ENABLE_ANTHROPIC_MESSAGES=1`）、`/panel/login`。
+
+> **API Key 说明**：`/v1/*` 只认**面板里配置的 key**（设置页可复制）。`accounts/settings.json`
+> 里的 `launcher_key`（`wb-...`）**仅在该面板还没有任何 key 时**才作为兜底，一旦面板配了 key
+> 就被忽略——别拿它当日常 key 用。
+
+## 五、升级后验证清单
+
+1. `curl -s 127.0.0.1:8788/health` → `{"ok":true,...,"accounts":N,"accounts_ready":N}`
+2. 带**面板 Key** 打 `/v1/models` → 200；不带 Key → 401
+3. **`/v1/chat/completions` 与 `/v1/responses` 各打一次 → 200 且有 body**（补丁 1；空响应=补丁丢失）
+4. `/v1/messages` 真实请求 200，且 `usage.input_tokens` 不含缓存双计
+   （`input_tokens + cache_read + cache_creation` == 上游 `prompt_tokens`）
+5. `gpt-*` 传 `max_tokens=1` → 200（上游 clamp 生效）
+6. 看板移动端（≤640px）：标题/GitHub/语言/主题同一行、页签整行；账号卡积分格为上游
+   `.credit-stack` 两行结构（数值行 + 明细徽章行）；概况卡为上游新版（大数字=可用积分、
+   KeyBadge 在上方控制栏）；`--page-nav-top` 等于 header 高度（无 14px 缝隙）；宽屏仍为 +14
+7. 进程环境：`tr '\0' '\n' < /proc/<pid>/environ | grep -E 'TZ|WB_ENABLE_ANTHROPIC_MESSAGES'`
+   → `TZ=Asia/Shanghai`、`WB_ENABLE_ANTHROPIC_MESSAGES=1`
+8. **流式单 id**：`python3 /tmp/opencode/finalproof.py 8788` → `1 distinct ids` 且 `finish=stop`
+   （补丁 6.5；出现 2 个 id 说明补丁丢失，客户端会卡「生成中」）
+9. **账号级并发上限**：面板设 1 → 6 路并发应落到 6 个不同账号；设 0 → 仍落 1 个账号
+10. **更稳的会话粘滞键**：两个同开场白会话，开关关 → 同账号；开 → 两个账号
+11. `/` 响应头 `Server: wb-proxy/1.7.29`
+
+**测试基线**：`tests/run_all.py` 在本机 v1.7.29 基线为 **211 通过 / 3 失败**（共 214 套件），
+与本地改造无关：
+- `_test_anthropic_http.py`（38）/ `_test_anthropic_messages.py`（58）：必须 **全过**（本地补丁相关）
+- 补丁自建套件必须全过：`_test_account_concurrency.py`（24）、`_test_affinity_stable_key.py`（14）、
+  `_test_stream_single_id.py`（15 断言）、`_test_transparent_retry.py`
+- 已知既有失败（**纯净 upstream v1.7.29 同样 3 挂**，与本地改造无关）：
+  `_test_breaker_fairness.py`、`_test_egress_backoff.py`、`_test_pool_backoff.py`。
+  三者都是上游 v1.7.18「模型级 5xx 不再计入账号熔断」改行为后测试未同步；
+  v1.7.27 的 `e18b7aa` 已修好 `_test_run_all_contracts.py` 的 /proc walk 用例。
+
+## 六、排查提示
+
+- **时区**：本机系统时区是 UTC。若日志时间戳是 UTC 或调度器在错误的钟点跑，
+  检查 `WB_TZ=Asia/Shanghai` 是否生效（`tr '\0' '\n' < /proc/<pid>/environ | grep TZ`）。
+- **`/v1/chat/completions`、`/v1/responses` 空响应/连接被断（经预览代理表现为 530）**：
+  补丁 1 丢失——`_dispatch_chat_post` 又被嵌进 `_release_key_slot` 了，按补丁 1 归位。
+- **`/v1/messages` 返回 400 `invalid_request_error`（提示 `WB_ENABLE_ANTHROPIC_MESSAGES`）**：
+  上游 v1.7.8 起默认关闭该入口；确认 `start.sh` 里 `WB_ENABLE_ANTHROPIC_MESSAGES=1` 且已重启。
+- **缓存口径**：若 Anthropic 客户端上下文用量显示偏大（约 2 倍），多半是补丁 1 没生效。
+- **`gpt-*` 400 `integer_below_min_value`**：`max_tokens` 低于 16；上游已自带 clamp，
+  若复现说明上游又移除了，按 `git log upstream/main -p -- wb_proxy.py | grep max_tokens` 找。
+- **API key 401**：确认用的是面板设置页里的 key，而不是 `launcher_key`（`wb-...`，见第四节说明）。
+- **本机是浅克隆**：若 `git push` 报 `did not receive expected object`，先 `git fetch --unshallow upstream`。
+- **gh token 缺 `workflow` scope**：仓库历史含 `.github/workflows/*.yml`，push 会被拒；
+  用 `gh auth refresh -h github.com -s workflow` 补授权。
