@@ -590,3 +590,15 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
 - **本机是浅克隆**：若 `git push` 报 `did not receive expected object`，先 `git fetch --unshallow upstream`。
 - **gh token 缺 `workflow` scope**：仓库历史含 `.github/workflows/*.yml`，push 会被拒；
   用 `gh auth refresh -h github.com -s workflow` 补授权。
+
+### 补丁 9（2026-10-23）：会话绑定落盘 + body 上传耗时日志
+
+- **`SessionAffinity` 落盘**（`wb_accounts.py`）：`state_path` 默认由 `AccountPool` 传 `accounts/affinity.json`，
+  请求路径最多每 10s 写一次、进程退出再写一次；启动时恢复未过期绑定（`history` 上限照旧、坏文件当空）。
+  文件已加入 `NON_ACCOUNT_FILES`，不会被当成账号解析。目的：重启后长会话不再整段重算前缀
+  （180k 上下文冷启动 10–15s，缓存命中从 99.9% 掉到 15%）。
+- **`body_wait` 日志**（`wb_proxy.py`）：`handle_one_request` 记 `_arrived_at`，`_read_payload` 记读完 body
+  的耗时，`chat:` 行在 ≥1s 时追加 ` body_wait=Nms`。此前这行只在 body 读完后才写，客户端上传慢
+  与上游慢无法区分，日志里表现为"请求几分钟后才出现"甚至不出现。
+- 判定：`grep -c "_maybe_flush" wb_accounts.py`=3；`grep -c "body_wait" wb_proxy.py`=2；
+  `python3 tests/_test_affinity_persistence.py` 10 例全过；重启后 `accounts/affinity.json` 条目数 >0。
