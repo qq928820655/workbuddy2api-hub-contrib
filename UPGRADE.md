@@ -602,3 +602,17 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
   与上游慢无法区分，日志里表现为"请求几分钟后才出现"甚至不出现。
 - 判定：`grep -c "_maybe_flush" wb_accounts.py`=3；`grep -c "body_wait" wb_proxy.py`=2；
   `python3 tests/_test_affinity_persistence.py` 10 例全过；重启后 `accounts/affinity.json` 条目数 >0。
+
+### 补丁 10（2026-10-23）：请求到达即记日志（`chat head`）
+
+`chat:` 行只在 body 读完后才写，所以客户端上传慢时那段窗口在日志里完全空白。
+`do_POST` 现在对模型路由（chat/completions/responses/messages）在**读 body 之前**写一行
+`chat head: <path> content_length=<n> key=<k>`。配合 `body_wait` 可区分三种情况：
+
+- 有 `chat head`、`body_wait` 很大 → 请求到了，客户端/网络上传慢；
+- 有 `chat head`、很快出现 `chat:` → 网关正常；
+- **整段窗口没有 `chat head`** → 请求根本没到本进程。
+
+实测（1MB body，客户端慢速发 10.1s）：直连 8788 记 `body_wait=9499ms`；
+经公网预览域名（Cloudflare）只记 `body_wait=1051ms`——**CF 会把 body 收完再转给我们**，
+所以经 CDN 的上传时间在网关日志里不可见。判定：`grep -c "chat head" wb_proxy.py`=2。
