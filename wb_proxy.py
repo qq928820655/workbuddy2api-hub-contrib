@@ -21107,6 +21107,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self.parse_request():
             return
+        # When the request line + headers finished parsing. The body is read
+        # later, and for a large conversation that gap is the client uploading
+        # it: a slow gap means the delay happened before the gateway could see
+        # the prompt at all, not inside the upstream call.
+        self._arrived_at = time.time()
         mname = 'do_' + self.command
         if not hasattr(self, mname):
             self.send_error(501, "Unsupported method (%r)" % self.command)
@@ -22688,6 +22693,13 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw or "{}")
         except Exception:
             raise BadJSON()
+        finally:
+            # Upload accounting: time from the headers being parsed to the whole
+            # body being in hand. It is not upstream time, and it is exactly
+            # what a slow large-context client spends before the gateway can
+            # dispatch anything.
+            self._body_wait_ms = int((time.time() - getattr(
+                self, "_arrived_at", time.time())) * 1000)
         if isinstance(data, dict):
             return data
         if allow_list and isinstance(data, list):
@@ -26888,7 +26900,7 @@ class Handler(BaseHTTPRequestHandler):
         given = client_effort_of(payload) or payload.get("reasoning") \
             or payload.get("thinking") or payload.get("enable_thinking")
         log(
-            "chat: model=%s client_effort=%r -> upstream_effort=%r stream=%s msgs=%d key=%s"
+            "chat: model=%s client_effort=%r -> upstream_effort=%r stream=%s msgs=%d key=%s%s"
             % (
                 payload.get("model"),
                 given,
@@ -26896,6 +26908,11 @@ class Handler(BaseHTTPRequestHandler):
                 bool(payload.get("stream")),
                 len(forwarded.get("messages") or []),
                 key_label(self._key_id()) or "-",
+                # Only shown when it is large enough to matter (>=1s): it tells
+                # "the client was still uploading" apart from "the upstream was
+                # slow", which the rest of this line cannot.
+                (" body_wait=%dms" % self._body_wait_ms)
+                if getattr(self, "_body_wait_ms", 0) >= 1000 else "",
             )
         )
         fp = prompt_fingerprint(forwarded.get("messages"))

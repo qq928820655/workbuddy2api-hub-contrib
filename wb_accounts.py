@@ -1,4 +1,5 @@
 import re
+import atexit
 import base64
 import datetime
 import json
@@ -4035,14 +4036,105 @@ class SessionAffinity(object):
 
     The history is small on purpose (`history`, 3): it is a list of accounts
     that may still hold the conversation's prefix, not a load-balancing device.
+
+    Bindings are in memory by default. Passing `state_path` persists them, so a
+    restart does not send every live conversation to a cold account: the prefix
+    cache lives upstream, keyed by the account that built it, and losing the
+    binding means the next turn re-prefills the whole context (a 180k-token
+    conversation pays 10-15s once). The file is a plain JSON map of
+    conversation key to [[uid, expiry], ...], rewritten at most once per
+    `flush_interval` seconds from the request path and once more on exit.
     """
 
-    def __init__(self, ttl=7200, max_entries=5000, history=3):
+    def __init__(self, ttl=7200, max_entries=5000, history=3, state_path=None,
+                 flush_interval=10.0):
         self.ttl = ttl
         self.max_entries = max_entries
         self.history = max(1, int(history))
         self.bindings = {}
         self._lock = threading.Lock()
+        # Persistence is opt-in: tests and short-lived pools keep the old
+        # memory-only behaviour, and a failed write must never break dispatch.
+        self.state_path = state_path
+        self.flush_interval = max(0.0, float(flush_interval))
+        self._dirty = False
+        self._last_flush = 0.0
+        self._flush_lock = threading.Lock()
+        if self.state_path:
+            self._load_state()
+    def _load_state(self):
+        """Restore bindings written by a previous process.
+
+        A corrupt or unreadable file is treated as empty: dispatch must still
+        work, it just loses the warm bindings (which is exactly what the
+        memory-only version did on every restart).
+        """
+        try:
+            with open(self.state_path, encoding="utf-8") as fh:
+                raw = json.load(fh)
+        except Exception:
+            return
+        if not isinstance(raw, dict):
+            return
+        now = time.time()
+        restored = {}
+        for key, entries in raw.items():
+            if not isinstance(key, str) or not isinstance(entries, list):
+                continue
+            live = []
+            for entry in entries:
+                if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                    continue
+                uid, expiry = entry
+                if not isinstance(uid, str) or not isinstance(expiry, (int, float)):
+                    continue
+                if expiry > now:
+                    live.append((uid, float(expiry)))
+            if live:
+                restored[key] = live[:self.history]
+        if restored:
+            self.bindings = restored
+    def _maybe_flush(self):
+        """Write the bindings out, at most once per `flush_interval` seconds."""
+        if not self.state_path or not self._dirty:
+            return
+        now = time.time()
+        if now - self._last_flush < self.flush_interval:
+            return
+        self.flush()
+    def flush(self):
+        """Write the current bindings to `state_path` (best effort).
+
+        Called from the request path, so every failure is swallowed: losing the
+        file only costs one cold turn per conversation after the next restart.
+        """
+        if not self.state_path:
+            return
+        with self._flush_lock:
+            if not self._dirty:
+                return
+            now = time.time()
+            with self._lock:
+                snapshot = {key: [(uid, exp) for uid, exp in entries if exp > now]
+                            for key, entries in self.bindings.items()}
+            snapshot = {key: entries for key, entries in snapshot.items() if entries}
+            tmp = self.state_path + ".tmp"
+            try:
+                parent = os.path.dirname(self.state_path)
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(snapshot, fh, ensure_ascii=False)
+                os.replace(tmp, self.state_path)
+            except Exception:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
+                return
+            self._dirty = False
+            self._last_flush = now
     def _live(self, key, now):
         """The conversation's unexpired entries, dropping the rest in place."""
         entries = self.bindings.get(key) or []
@@ -4061,7 +4153,10 @@ class SessionAffinity(object):
             if not live: return None
             uid, _exp = live[0]
             live[0] = (uid, now + self.ttl)
-            return uid
+            self._dirty = True
+            result = uid
+        self._maybe_flush()
+        return result
     def recent(self, key):
         """Every unexpired account of this conversation, most recent first."""
         if not key: return []
@@ -4079,6 +4174,8 @@ class SessionAffinity(object):
                        if entry[0] != uid]
             entries.insert(0, (uid, now + self.ttl))
             self.bindings[key] = entries[:self.history]
+            self._dirty = True
+        self._maybe_flush()
     def demote(self, key, uid=None):
         """Drop one account from the conversation, keeping the others.
 
@@ -4100,10 +4197,14 @@ class SessionAffinity(object):
                 self.bindings[key] = entries
             else:
                 self.bindings.pop(key, None)
+            self._dirty = True
+        self._maybe_flush()
     def unbind(self, key):
         if not key: return
         with self._lock:
             self.bindings.pop(key, None)
+            self._dirty = True
+        self._maybe_flush()
 
 def _realm_limit(values, realm):
     """One guard's value for an account's realm.
@@ -4279,6 +4380,10 @@ NON_ACCOUNT_FILES = ("settings.json", "active_realm.json")
 # active_realm.json 是区域开关，model_windows.json 是额度窗口记录，
 # quota_scan.json 是主动额度查询记录）。
 NON_ACCOUNT_FILES = ("settings.json", "active_realm.json", "model_windows.json", "quota_scan.json")
+# 会话绑定的落盘文件（见 SessionAffinity）。与凭证同目录，必须排除在账号
+# 扫描之外，否则每次启动都会被当成一个损坏的账号解析并报错。
+AFFINITY_STATE_FILE = "affinity.json"
+NON_ACCOUNT_FILES = NON_ACCOUNT_FILES + (AFFINITY_STATE_FILE,)
 
 
 class AccountPool(object):
@@ -4310,7 +4415,12 @@ class AccountPool(object):
         self._page_cursors = {}
         # uid 排序表的缓存：池成员没变就直接复用，变了重建（见 _page_ranks）。
         self._page_order_cache = None
-        self.affinity = SessionAffinity()
+        # 会话绑定落盘：重启后仍把每个会话送回它已经暖过前缀的账号，而不是
+        # 让所有活着的会话各自付一次全量 prefill（180k 上下文约 10-15s）。
+        # 放在账号目录下，与凭证同处一地；写入失败只丢绑定，不影响调度。
+        self.affinity = SessionAffinity(
+            state_path=os.path.join(directory, AFFINITY_STATE_FILE))
+        atexit.register(self.affinity.flush)
 
     def load(self):
         with self._lock:
