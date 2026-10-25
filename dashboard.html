@@ -2303,6 +2303,10 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '出口已更新': 'Exit updated',
     '出口更新失败:': 'Updating the exit failed:',
     '出口绑定': 'Exit binding',
+    '每槽账号数': 'Accounts per exit',
+    '自动分配': 'Auto-assign',
+    '出口延迟门禁：握手 ≤300ms（整请求兜底 ≤800ms），只有通过门禁的出口才会被自动分配；停用账号当场释放出口，重新启用后再参与分配。': 'Exit latency gate: handshake ≤300ms (whole-request fallback ≤800ms); only exits that pass the gate are auto-assigned; a disabled account releases its exit on the spot and is planned again once re-enabled.',
+    '超过延迟门禁': 'over the latency gate',
     '出站身份：WB = WorkBuddy 独立桌面客户端（默认），VSC = 官方 VSCode 插件，CLI = 官方 CodeBuddy CLI；三者对应不同的出站指纹与配额通道。': 'Outbound identity: WB = WorkBuddy standalone desktop client (default), VSC = official VSCode extension, CLI = official CodeBuddy CLI; the three use different outbound fingerprints and quota channels.',
     '出站身份：默认 WorkBuddy 桌面端 (WB) / 官方 VSCode 插件 (VSC) / 官方 CodeBuddy CLI (CLI)': 'Outbound identity: default WorkBuddy desktop (WB) / official VSCode extension (VSC) / official CodeBuddy CLI (CLI)',
     '出站身份：': 'Outbound identity:',
@@ -2368,7 +2372,7 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '剩余额度最大': 'Most quota left',
     '加载中...': 'Loading...',
     '加载更多': 'Load more',
-    '勾选要导入为槽位的出口：': 'Tick the exits to import as slots:',
+    '勾选要导入为槽位的出口（握手延迟超过门禁的出口不可勾选）：': 'Tick the exits to import as slots (exits over the handshake limit cannot be picked):',
     '匹配来源：': 'Match source:',
     '区域': 'Region',
     '区间': 'range',
@@ -3720,6 +3724,10 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     "全部账号": "全部帳號",
     "内置": "內建",
     "出口绑定": "出口繫結",
+    "每槽账号数": "每槽帳號數",
+    "自动分配": "自動分配",
+    "出口延迟门禁：握手 ≤300ms（整请求兜底 ≤800ms），只有通过门禁的出口才会被自动分配；停用账号当场释放出口，重新启用后再参与分配。": "出口延遲門禁：握手 ≤300ms（整請求兜底 ≤800ms），只有通過門禁的出口才會被自動分配；停用帳號當場釋放出口，重新啟用後再參與分配。",
+    "超过延迟门禁": "超過延遲門禁",
     "出站身份：WB = WorkBuddy 独立桌面客户端（默认），VSC = 官方 VSCode 插件，CLI = 官方 CodeBuddy CLI；三者对应不同的出站指纹与配额通道。": "出站身份：WB = WorkBuddy 獨立桌面客戶端（預設），VSC = 官方 VSCode 外掛，CLI = 官方 CodeBuddy CLI；三者對應不同的出站指紋與配額通道。",
     "出站身份：默认 WorkBuddy 桌面端 (WB) / 官方 VSCode 插件 (VSC) / 官方 CodeBuddy CLI (CLI)": "出站身份：預設 WorkBuddy 桌面端 (WB) / 官方 VSCode 外掛 (VSC) / 官方 CodeBuddy CLI (CLI)",
     "出站身份：": "出站身份：",
@@ -3754,7 +3762,7 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     "刷新间隔（分钟）": "重新整理間隔（分鐘）",
     "剥掉的后缀：": "剝掉的字尾：",
     "加载中...": "載入中...",
-    "勾选要导入为槽位的出口：": "勾選要匯入為槽位的出口：",
+    "勾选要导入为槽位的出口（握手延迟超过门禁的出口不可勾选）：": "勾選要匯入為槽位的出口（握手延遲超過門禁的出口不可勾選）：",
     "取价输入 = 内置目录": "取價輸入 = 內建目錄",
     "变体后缀继承": "變體字尾繼承",
     "可用账号池": "可用帳號池",
@@ -6512,8 +6520,15 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
           <div style="font-size:12px;color:var(--dim);margin-top:4px">
             每个账号固定绑定一个出口代理槽。槽位地址变化时绑定账号自动跟随；禁用或删除后回退直连。
           </div>
+          <div style="font-size:12px;color:var(--dim);margin-top:2px">
+            出口延迟门禁：握手 ≤300ms（整请求兜底 ≤800ms），只有通过门禁的出口才会被自动分配；停用账号当场释放出口，重新启用后再参与分配。
+          </div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <label for="autoSlotPer" style="font-size:12px;color:var(--dim)">每槽账号数</label>
+          <input id="autoSlotPer" type="number" min="0" max="50" value="3" style="width:72px">
+          <span id="autoSlotState" style="font-size:12px;color:var(--dim)"></span>
+          <button class="sec" onclick="autoAssignNow(this)" title="按「每槽账号数」把已启用账号依次分到通过门禁的槽位；已有绑定会被重新计算，停用的账号会释放出口、重新启用后再参与分配。填 0 表示关闭自动分配">自动分配</button>
           <button class="sec" onclick="discoverProxySlots(this)">自动发现 mihomo 端口</button>
           <button class="sec" onclick="runSubBridgeTest(this)">测试订阅转换</button>
           <button class="sec" onclick="runSubBridgeImport(this)">订阅转换并导入</button>
@@ -15473,6 +15488,16 @@ async function loadSettings(showToast, opts){
         affinityStableKeyState.textContent = affinityStableKey ? '(已启用)' : '(未启用)';
         affinityStableKeyState.style.color = affinityStableKey ? 'var(--accent2)' : 'var(--dim)';
       }
+      // 自动分配宽度：0 = 关闭（输入框回落到 3，方便一键开启）。
+      const autoPer = (typeof data.proxy_auto_assign_per_slot === 'number')
+        ? data.proxy_auto_assign_per_slot : 0;
+      const autoPerInput = document.getElementById('autoSlotPer');
+      if(autoPerInput) autoPerInput.value = autoPer > 0 ? autoPer : 3;
+      const autoPerState = document.getElementById('autoSlotState');
+      if(autoPerState){
+        autoPerState.textContent = autoPer > 0 ? '(自动分配已开)' : '(自动分配已关)';
+        autoPerState.style.color = autoPer > 0 ? 'var(--accent2)' : 'var(--dim)';
+      }
       SAVED_QUOTA_SCAN_MODELS = Array.isArray(data.quota_scan_models) ? data.quota_scan_models.slice() : [];
       QUOTA_SCAN_SELECTED = SAVED_QUOTA_SCAN_MODELS.slice();
       // 定时额度查询的模型目录只服务设置页，启动时不该挡住总览首屏。
@@ -18352,7 +18377,14 @@ async function testProxySlot(index, btn){
         renderProxySlots();
       }
       const where = [r.country, ipTypeLabel(r.ip_type)].filter(Boolean).join(' ');
-      toast('出口 ' + r.exit_ip + (where ? ' · ' + where : '') + '（' + r.latency_ms + 'ms）', 'ok');
+      const timing = (r.handshake_ms == null ? '' : '握手 ' + r.handshake_ms + 'ms · ')
+        + '全程 ' + r.latency_ms + 'ms';
+      if(r.gate_ok === false){
+        toast('出口 ' + r.exit_ip + (where ? ' · ' + where : '') + '（' + timing
+          + '）超过延迟门禁', 'warn');
+      }else{
+        toast('出口 ' + r.exit_ip + (where ? ' · ' + where : '') + '（' + timing + '）', 'ok');
+      }
     }else{
       toast('测试失败: ' + (r.error || 'unknown'), 'bad');
     }
@@ -18510,18 +18542,24 @@ function renderDiscover(){
   if(!box) return;
   if(!SLOT_DISCOVER.length){ box.innerHTML = ''; return; }
   box.innerHTML = '<div style="margin-top:14px"><div style="font-size:12px;color:var(--dim);margin-bottom:8px">'
-    + '勾选要导入为槽位的出口：</div>'
-    + SLOT_DISCOVER.map((c, i) =>
-        '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px">'
-        + '<input type="checkbox" ' + (c.reachable ? 'checked' : 'disabled') + ' data-idx="' + i + '">'
-        + '<span class="mono">' + esc(c.url) + '</span>'
-        + '<span style="color:' + (c.reachable ? 'var(--accent2)' : 'var(--bad)') + '">'
-        + (c.reachable
-            ? ('出口 ' + esc(c.exit_ip)
-               + (autoSlotName(c) ? ' · ' + esc(autoSlotName(c)) : '')
-               + ' · ' + c.latency_ms + 'ms')
-            : '不可达') + '</span>'
-        + '</label>').join('')
+    + '勾选要导入为槽位的出口（握手延迟超过门禁的出口不可勾选）：</div>'
+    + SLOT_DISCOVER.map((c, i) => {
+        // 门禁看握手（首字节前开销）；整请求只作兜底展示，跨洋取 IP 本身就要 300ms+。
+        const timing = (c.handshake_ms == null ? '握手 —' : '握手 ' + c.handshake_ms + 'ms')
+          + ' / 全程 ' + c.latency_ms + 'ms';
+        const color = !c.reachable ? 'var(--bad)' : (c.gate_ok === false ? 'var(--warn)' : 'var(--accent2)');
+        return '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px">'
+          + '<input type="checkbox" ' + (c.healthy ? 'checked' : 'disabled') + ' data-idx="' + i + '">'
+          + '<span class="mono">' + esc(c.url) + '</span>'
+          + '<span style="color:' + color + '">'
+          + (c.reachable
+              ? ('出口 ' + esc(c.exit_ip)
+                 + (autoSlotName(c) ? ' · ' + esc(autoSlotName(c)) : '')
+                 + ' · ' + timing
+                 + (c.gate_ok === false ? ' · 超过延迟门禁' : ''))
+              : '不可达') + '</span>'
+          + '</label>';
+      }).join('')
     + '<button class="sec" onclick="importDiscovered()" style="margin-top:8px">导入勾选的出口</button></div>';
 }
 
@@ -18581,6 +18619,34 @@ async function autoAssignSlots(btn){
     toast('一键分配代理失败: ' + e.message, 'bad');
   }finally{
     if(button){ button.disabled = false; button.textContent = originalText || '一键分配代理'; }
+  }
+}
+
+async function autoAssignNow(btn){
+  // 与上面的「一键分配代理」不同：这里按「每槽账号数」重排全部已启用账号，
+  // 已有绑定也会被重算，并把这个数字记成自动分配宽度（0 = 关闭自动分配）。
+  const input = document.getElementById('autoSlotPer');
+  const per = parseInt((input && input.value) || '', 10);
+  if(!Number.isInteger(per) || per < 0 || per > 50){
+    toast('每槽账号数需在 0-50 之间', 'warn');
+    return;
+  }
+  if(btn) btn.disabled = true;
+  try{
+    if(per === 0){
+      await postJSON('/settings/save', {proxy_auto_assign_per_slot: 0});
+      toast('已关闭自动分配', 'ok');
+      return;
+    }
+    const r = await postJSON('/proxy/slots/autoassign',
+      {per_slot: per, probe: true, remember: true});
+    await loadAccounts();
+    await loadProxySlots();
+    toast('已按每槽 ' + per + ' 个分配 ' + (r.assigned || 0) + ' 个账号', 'ok');
+  }catch(e){
+    toast('自动分配失败: ' + e.message, 'bad');
+  }finally{
+    if(btn) btn.disabled = false;
   }
 }
 

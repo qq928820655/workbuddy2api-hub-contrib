@@ -218,6 +218,46 @@ def affinity_stable_key_enabled(accounts_dir):
     return value is not False if isinstance(value, bool) else value is None
 
 
+# 自动分配代理槽：每 N 个账号共用一个出口。
+#
+# 0 = 关闭（默认）。设成 3 后，保存槽位 / 新增或导入账号 / 启动时都会按
+# 「已启用账号（按 uid 排序）依次每 N 个分到下一个已启用槽位、用尽后从头循环」
+# 重新分配，所以池子增长时不用手工一个个绑。分配规则见
+# wb_proxy.plan_slot_assignment。
+PROXY_AUTO_ASSIGN_KEY = "proxy_auto_assign_per_slot"
+PROXY_AUTO_ASSIGN_MAX = 50
+
+
+def proxy_auto_assign_per_slot(accounts_dir):
+    """Accounts per proxy exit for automatic assignment; 0 means disabled.
+
+    Anything unreadable falls back to 0 (off), so a hand-edited settings.json
+    cannot start moving accounts between exits on its own.
+    """
+    value = load(accounts_dir).get(PROXY_AUTO_ASSIGN_KEY)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    if value < 0 or value > PROXY_AUTO_ASSIGN_MAX:
+        return 0
+    return value
+
+
+def set_proxy_auto_assign_per_slot(accounts_dir, value):
+    """Persist the auto-assignment width. Returns the stored whole number."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("proxy_auto_assign_per_slot must be a whole number")
+    if value < 0:
+        raise ValueError("proxy_auto_assign_per_slot cannot be less than 0")
+    if value > PROXY_AUTO_ASSIGN_MAX:
+        raise ValueError("proxy_auto_assign_per_slot cannot be more than %d"
+                         % PROXY_AUTO_ASSIGN_MAX)
+    with _lock:
+        data = load(accounts_dir)
+        data[PROXY_AUTO_ASSIGN_KEY] = value
+        save(accounts_dir, data)
+    return value
+
+
 def set_affinity_stable_key_enabled(accounts_dir, enabled):
     """Persist the stable-affinity-key switch. Returns the stored boolean.
 

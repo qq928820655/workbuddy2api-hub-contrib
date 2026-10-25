@@ -7340,6 +7340,15 @@ def _both(tasks_fn, summary_fn, account):
 
 PROXY_DISCOVER_HOST = os.environ.get("WB_PROXY_DISCOVER_HOST") or "cli-proxy-mihomo"
 
+# 出口延迟门禁。握手 = 经代理建隧道并完成到目标的 TLS 握手，这段是请求真正
+# 要等的首字节前开销；整请求 = 连 api.ipify.org 取一次 IP 的全流程，跨洋访
+# 问本身就要 300~500ms，所以它只作为「握不了手」时的兜底口径。
+PROXY_RTT_LIMIT_MS = int(os.environ.get("WB_PROXY_RTT_LIMIT_MS") or 300)
+PROXY_LATENCY_LIMIT_MS = int(os.environ.get("WB_PROXY_LATENCY_LIMIT_MS") or 800)
+
+#: 探针取出口 IP 的目标，也是握手计时的隧道终点。
+PROXY_PROBE_HOST = "api.ipify.org"
+
 
 def _proxy_port_range():
     raw = os.environ.get("WB_PROXY_DISCOVER_PORTS") or "17901-17910"
@@ -7352,17 +7361,94 @@ def _proxy_port_range():
     return range(17901, 17911)
 
 
+def _proxy_endpoint(proxy_url):
+    """(host, port) of an HTTP CONNECT proxy, or None for anything else.
+
+    Only plain http:// proxies can be timed by hand: SOCKS URLs are still
+    reachable through urllib's opener, they just have no handshake number.
+    """
+    raw = str(proxy_url or "").strip()
+    if not raw:
+        return None
+    if "://" not in raw:
+        raw = "http://" + raw
+    try:
+        parts = urllib.parse.urlsplit(raw)
+        if parts.scheme.lower() != "http":
+            return None
+        host = parts.hostname or ""
+        if not host:
+            return None
+        return host, int(parts.port or 80)
+    except ValueError:
+        return None
+
+
+def proxy_gate(handshake_ms, latency_ms):
+    """Judge one exit against the two latency limits. Returns (ok, reason).
+
+    `handshake_ms` is the number a request actually pays before its first byte,
+    so it is the primary limit. `latency_ms` is the fallback for proxies whose
+    handshake cannot be timed (a SOCKS URL handed to urllib). A missing
+    measurement never passes: an exit that cannot be timed cannot be certified.
+    """
+    if handshake_ms is not None:
+        return handshake_ms <= PROXY_RTT_LIMIT_MS, "rtt"
+    if latency_ms is not None:
+        return latency_ms <= PROXY_LATENCY_LIMIT_MS, "latency"
+    return False, "unreachable"
+
+
+def probe_proxy_route(proxy_url, timeout=12, host=PROXY_PROBE_HOST, port=443):
+    """Time one HTTP proxy end to end.
+
+    Returns (handshake_ms, total_ms, exit_ip, error). Both timings start at the
+    same instant and the same connection carries both steps: `handshake_ms`
+    stops once the CONNECT tunnel and the TLS handshake to `host` are done,
+    `total_ms` stops once the reply body is read. Reusing one connection keeps
+    the two numbers comparable - a fresh connection for the second step would
+    charge the proxy twice.
+    """
+    endpoint = _proxy_endpoint(proxy_url)
+    if endpoint is None:
+        return None, None, "", "unsupported proxy url"
+    started = time.time()
+    conn = None
+    try:
+        conn = http.client.HTTPSConnection(endpoint[0], endpoint[1],
+                                           timeout=timeout)
+        conn.set_tunnel(host, port)
+        conn.connect()
+        handshake_ms = int((time.time() - started) * 1000)
+        conn.request("GET", "/", headers={
+            "Host": host if port == 443 else "%s:%d" % (host, port),
+            "User-Agent": "wb-proxy-probe",
+            "Connection": "close",
+        })
+        resp = conn.getresponse()
+        body = resp.read().decode("utf-8", "replace").strip()
+        total_ms = int((time.time() - started) * 1000)
+        if resp.status >= 400:
+            return handshake_ms, total_ms, "", "HTTP %d" % resp.status
+        return handshake_ms, total_ms, body, ""
+    except Exception as exc:
+        elapsed = int((time.time() - started) * 1000)
+        return None, elapsed, "", str(exc)[:160]
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+
+
 def probe_proxy_exit(proxy_url, timeout=12):
     """Return (exit_ip, error) for one proxy URL."""
-    try:
-        opener = wb_accounts.opener_for_proxy(proxy_url)
-        if opener is None:
-            return "", "empty proxy url"
-        req = urllib.request.Request("https://api.ipify.org", method="GET")
-        with opener.open(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", "replace").strip(), ""
-    except Exception as exc:
-        return "", str(exc)[:160]
+    if not str(proxy_url or "").strip():
+        return "", "empty proxy url"
+    _, _, exit_ip, error = probe_proxy_route(proxy_url, timeout=timeout)
+    return exit_ip, error
+
 
 
 def egress_exit(proxy_url):
@@ -7381,15 +7467,19 @@ def egress_exit(proxy_url):
 
 
 def probe_proxy_intel(proxy_url, timeout=12):
-    """Probe one proxy: its exit IP, and where and what that exit is.
+    """Probe one proxy: its exit IP, where it is, and whether it is fast enough.
 
     Both steps live here so the discovery list, the per-slot test and the stored
-    slot all describe an exit the same way. `latency_ms` covers the proxy probe
-    only - the lookup goes out directly and would otherwise inflate it.
+    slot all describe an exit the same way. `latency_ms` is the whole request
+    (handshake + reply) and `handshake_ms` is what a request pays before its
+    first byte; the geo lookup goes out directly and would otherwise inflate
+    both. `gate_ok` applies the latency limits declared next to
+    PROXY_RTT_LIMIT_MS.
     """
-    started = time.time()
-    exit_ip, error = probe_proxy_exit(proxy_url, timeout=timeout)
-    latency_ms = int((time.time() - started) * 1000)
+    handshake_ms, latency_ms, exit_ip, error = probe_proxy_route(
+        proxy_url, timeout=timeout)
+    if latency_ms is None:
+        latency_ms = timeout * 1000
     intel = wb_ipintel.lookup(exit_ip) if exit_ip else wb_ipintel.empty()
     # Two steps, two outcomes. `ok` covers the proxy probe only: the lookup is a
     # separate third-party call that fails on its own (blocked, timeout, 429, a
@@ -7397,10 +7487,20 @@ def probe_proxy_intel(proxy_url, timeout=12):
     # "the lookup did not answer" from "the lookup answered with nothing", or a
     # blip at the geo service would erase what the last good probe learned.
     intel_ok = any(str(intel.get(field) or "").strip() for field in wb_ipintel.FIELDS)
+    if error:
+        gate_ok, gate = False, "unreachable"
+    else:
+        gate_ok, gate = proxy_gate(handshake_ms, latency_ms)
     return {
         "ok": not error,
+        "healthy": bool(not error and gate_ok),
         "exit_ip": exit_ip,
+        "handshake_ms": handshake_ms,
         "latency_ms": latency_ms,
+        "gate_ok": bool(gate_ok),
+        "gate": gate,
+        "rtt_limit_ms": PROXY_RTT_LIMIT_MS,
+        "latency_limit_ms": PROXY_LATENCY_LIMIT_MS,
         "error": error,
         "intel_ok": intel_ok,
         "country": intel["country"],
@@ -7409,6 +7509,7 @@ def probe_proxy_intel(proxy_url, timeout=12):
         "isp": intel["isp"],
         "asn": intel["asn"],
     }
+
 
 
 def discover_proxy_slots():
@@ -7565,6 +7666,109 @@ def probe_subbridge_listeners(listeners, rounds=3, workers=8):
                 not target.get("ok") for target in targets):
             time.sleep(3)
     return targets
+def plan_slot_assignment(uids, slot_ids, per_slot=3):
+    """Spread accounts over slots, `per_slot` accounts per exit.
+
+    Deterministic on purpose: the caller passes uids in a stable order, slots
+    keep their stored order, and every `per_slot` consecutive accounts move to
+    the next slot. Once the slots run out the plan wraps, so a pool bigger than
+    per_slot × slots still spreads evenly instead of piling onto the last slot.
+    When there is nothing to assign (no uid or no slot) the plan is empty.
+    """
+    try:
+        per = int(per_slot)
+    except (TypeError, ValueError):
+        per = 3
+    per = max(1, min(per, wb_settings.PROXY_AUTO_ASSIGN_MAX))
+    slots = [str(slot) for slot in (slot_ids or []) if slot]
+    if not slots:
+        return []
+    return [(uid, slots[(index // per) % len(slots)])
+            for index, uid in enumerate(uids or [])]
+
+
+def assign_proxy_slots(per_slot=3, probe=True, only_unbound=False):
+    """Bind enabled accounts to enabled proxy slots. Returns a report.
+
+    `probe` re-tests each slot and keeps only the exits that pass the latency
+    gate, which is what the panel's one-click assignment uses: binding a live
+    account to a 2-second exit is worse than leaving it unbound. The automatic
+    mode never probes (see maybe_auto_assign_slots) so that saving a slot or
+    importing accounts cannot stall on eight unreachable proxies.
+
+    Bindings belong to enabled accounts only: a disabled account releases its
+    exit on the spot (the report counts it under `released`), so the exits it
+    held go back into the pool, and re-enabling the account later puts it back
+    into the next plan.
+    """
+    released = 0
+    for account in (POOL.accounts if POOL else []):
+        if not account.enabled and account.proxy_slot:
+            if POOL.set_proxy_slot(str(account.uid), "") is not None:
+                released += 1
+    if released:
+        log("proxy slots: released %d disabled account(s)" % released)
+    slots = [entry for entry in wb_settings.proxy_slots(ACCOUNTS_DIR)
+             if entry.get("enabled", True)]
+    if not slots:
+        return {"ok": False, "error": "no enabled proxy slot", "assigned": 0,
+                "released": released, "per_slot": per_slot, "probes": []}
+    probes, usable = [], []
+    for entry in slots:
+        if probe:
+            result = probe_proxy_intel(entry["url"])
+            result["id"] = entry["id"]
+            result["label"] = slot_label(entry)
+            probes.append(result)
+            if not result["healthy"]:
+                continue
+        usable.append(entry["id"])
+    if not usable:
+        return {"ok": False,
+                "error": "no proxy slot passes the latency gate",
+                "assigned": 0, "released": released, "per_slot": per_slot,
+                "probes": probes}
+    accounts = [account for account in (POOL.accounts if POOL else [])
+                if account.enabled]
+    if only_unbound:
+        accounts = [account for account in accounts if not account.proxy_slot]
+    accounts.sort(key=lambda account: str(account.uid))
+    plan = plan_slot_assignment([account.uid for account in accounts],
+                                usable, per_slot)
+    assigned = 0
+    for uid, slot_id in plan:
+        if POOL.set_proxy_slot(uid, slot_id) is not None:
+            assigned += 1
+    log("proxy slots: assigned %d account(s) at %d/slot over %d exit(s)%s"
+        % (assigned, int(per_slot or 0), len(usable),
+           " [probed]" if probe else ""))
+    return {"ok": True, "assigned": assigned, "released": released,
+            "per_slot": per_slot,
+            "slots_used": usable, "probes": probes,
+            "slots": proxy_slots_view()}
+
+
+def maybe_auto_assign_slots(reason=""):
+    """Rebalance accounts when the panel asked for it. Returns report or None.
+
+    Off by default (settings.proxy_auto_assign_per_slot == 0). Called after
+    slots are saved and after accounts change, so "N accounts per exit" keeps
+    holding without anyone clicking a button.
+    """
+    if not POOL:
+        return None
+    try:
+        per = wb_settings.proxy_auto_assign_per_slot(ACCOUNTS_DIR)
+    except Exception:
+        return None
+    if per <= 0:
+        return None
+    report = assign_proxy_slots(per_slot=per, probe=False)
+    if not report.get("ok"):
+        log("proxy slots: auto-assign skipped (%s): %s"
+            % (reason or "-", report.get("error")))
+    return report
+
 
 
 _byacct_cache = {"at": 0.0, "data": None}
@@ -11721,6 +11925,11 @@ def runtime_settings_view():
         "media_limits": dict(wb_settings.MEDIA_LIMITS),
         "media_minimums": dict(wb_settings.MEDIA_MINIMUMS),
         "media_realms": list(wb_settings.MEDIA_REALMS),
+        "proxy_auto_assign_per_slot":
+            wb_settings.proxy_auto_assign_per_slot(ACCOUNTS_DIR),
+        "proxy_auto_assign_max": wb_settings.PROXY_AUTO_ASSIGN_MAX,
+        "proxy_rtt_limit_ms": PROXY_RTT_LIMIT_MS,
+        "proxy_latency_limit_ms": PROXY_LATENCY_LIMIT_MS,
         "log_db_enabled": wb_settings.log_db_enabled(ACCOUNTS_DIR),
         "log_db_max_rows": wb_settings.log_db_max_rows(ACCOUNTS_DIR),
         "log_db_max_days": wb_settings.log_db_max_days(ACCOUNTS_DIR),
@@ -24037,6 +24246,19 @@ class Handler(BaseHTTPRequestHandler):
                     "invalid_request_error")
             wb_settings.set_affinity_stable_key_enabled(ACCOUNTS_DIR, raw)
             reply["affinity_stable_key_enabled"] = raw
+        if "proxy_auto_assign_per_slot" in payload:
+            # 0 = 关闭；>0 = 每 N 个账号共用一个出口，保存槽位 / 账号变动时
+            # 自动重新分配（见 maybe_auto_assign_slots）。
+            raw = payload.get("proxy_auto_assign_per_slot")
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                return self._error(
+                    400, "proxy_auto_assign_per_slot must be a whole number",
+                    "invalid_request_error")
+            try:
+                reply["proxy_auto_assign_per_slot"] = \
+                    wb_settings.set_proxy_auto_assign_per_slot(ACCOUNTS_DIR, raw)
+            except ValueError as exc:
+                return self._error(400, str(exc), "invalid_request_error")
         if "log_db_enabled" in payload or "log_db_max_rows" in payload \
                 or "log_db_max_days" in payload or "log_db_max_bytes" in payload:
             # 日志落库（默认关闭）：开关与三条保留上限一次提交里可以任选子集，
@@ -24296,6 +24518,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 log("proxy slots: CodeArts rebind failed: %s" % exc)
             log("proxy slots saved: %d slot(s)" % len(saved))
+            maybe_auto_assign_slots("slots saved")
             return self._json(200, {"slots": proxy_slots_view()})
         if path == "/proxy/slots/test":
             slot_id = str(payload.get("id") or "").strip()
@@ -24345,6 +24568,38 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"candidates": discover_proxy_slots()})
         if path == "/proxy/subbridge":
             return self._handle_proxy_subbridge(payload)
+        if path == "/proxy/slots/autoassign":
+            per = payload.get("per_slot", 3)
+            if isinstance(per, bool) or not isinstance(per, int):
+                return self._error(400, "per_slot must be a whole number",
+                                   "invalid_request_error")
+            if per < 1 or per > wb_settings.PROXY_AUTO_ASSIGN_MAX:
+                return self._error(
+                    400, "per_slot must be between 1 and %d"
+                    % wb_settings.PROXY_AUTO_ASSIGN_MAX,
+                    "invalid_request_error")
+            if payload.get("remember") is True:
+                wb_settings.set_proxy_auto_assign_per_slot(ACCOUNTS_DIR, per)
+            report = assign_proxy_slots(
+                per_slot=per,
+                probe=payload.get("probe", True) is not False,
+                only_unbound=payload.get("only_unbound") is True,
+            )
+            if not report.get("ok"):
+                # 带上逐槽探测结果：面板要能说清「为什么一个都没分」——是全不可达，
+                # 还是都超过了延迟门禁。
+                return self._json(409, {
+                    "error": {
+                        "message": report.get("error") or "assignment failed",
+                        "type": "invalid_request_error",
+                        "code": 409,
+                    },
+                    "per_slot": per,
+                    "probes": report.get("probes") or [],
+                })
+            report["auto_per_slot"] = \
+                wb_settings.proxy_auto_assign_per_slot(ACCOUNTS_DIR)
+            return self._json(200, report)
         return self._error(404, "not found", "invalid_request_error")
 
     def _handle_proxy_subbridge(self, payload):
@@ -25796,6 +26051,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(404, "no such account")
             log("account %s %s"
                 % (uid[:8], "enabled" if payload.get("enabled") else "disabled"))
+            maybe_auto_assign_slots("account enabled")
         if "tasksEnabled" in payload:
             updated = POOL.set_tasks_enabled(uid, bool(payload.get("tasksEnabled")))
             if updated is None:
@@ -25895,6 +26151,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(400, "enabled must be true or false",
                                    "invalid_request_error")
             POOL.set_all_enabled(raw_enabled)
+        maybe_auto_assign_slots("accounts set-all")
         return self._json_panel(200, {"accounts": account_views()})
 
     def _route_accounts_delete(self, payload):
@@ -25904,6 +26161,7 @@ class Handler(BaseHTTPRequestHandler):
         removed = POOL.remove(uid)
         invalidate_tasks_cache()
         log("account %s deleted" % uid[:8])
+        maybe_auto_assign_slots("account deleted")
         return self._json_panel(200, {"deleted": removed, "accounts": account_views()})
 
     def _route_accounts_add_api_key(self, payload):
@@ -26022,6 +26280,7 @@ class Handler(BaseHTTPRequestHandler):
         log("account import: %d added, %d updated, %d skipped, %d invalid"
             % (len(report["added"]), len(report["updated"]),
                len(report["skipped"]), len(report["invalid"])))
+        maybe_auto_assign_slots("accounts imported")
         return self._json_panel(200, {
             "count": len(rows),
             "result": report,
@@ -27665,6 +27924,7 @@ def _bootstrap_runtime(args):
     POOL = wb_accounts.AccountPool(ACCOUNTS_DIR, log=log)
     POOL.load()
     POOL.apply_proxy_slots()
+    maybe_auto_assign_slots("startup")
     _bind_pools()
     apply_reserve_credits()
     # WB_MAX_CONCURRENT_CHAT=auto: size the chat ceiling from the pool that was

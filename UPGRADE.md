@@ -616,3 +616,31 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
 实测（1MB body，客户端慢速发 10.1s）：直连 8788 记 `body_wait=9499ms`；
 经公网预览域名（Cloudflare）只记 `body_wait=1051ms`——**CF 会把 body 收完再转给我们**，
 所以经 CDN 的上传时间在网关日志里不可见。判定：`grep -c "chat head" wb_proxy.py`=2。
+
+### 补丁 11（2026-10-24）：代理出口延迟门禁 + 每 N 个账号自动分配
+
+- **握手延迟口径**（`wb_proxy.py`）：新增 `probe_proxy_route()`，用
+  `http.client.HTTPSConnection` + `set_tunnel()` 一次连接里量两段——`handshake_ms`
+  （TCP→CONNECT→到目标 TLS 握手完成）与 `latency_ms`（再取回 api.ipify.org 的响应）。
+  `probe_proxy_intel()` 增加 `handshake_ms / healthy / gate_ok / gate /
+  rtt_limit_ms / latency_limit_ms`；`probe_proxy_exit()` 保持原签名（内部转调）。
+  `proxy_gate()` 判定：握手 ≤ `WB_PROXY_RTT_LIMIT_MS`（默认 300）为主，握不了手
+  （SOCKS）时才用整请求 ≤ `WB_PROXY_LATENCY_LIMIT_MS`（默认 800）。
+- **自动分配**（`wb_settings.py` + `wb_proxy.py` + `dashboard.html`）：
+  `proxy_auto_assign_per_slot`（0=关，默认关）；`plan_slot_assignment()` 按 uid 排序、
+  每 N 个账号一个已启用槽、槽位用尽后循环（不会把余数全压到最后一个槽）。
+  `assign_proxy_slots()` 可先探测、只用通过门禁的出口；`maybe_auto_assign_slots()`
+  在保存槽位 / 导入账号 / 启停账号 / 批量启停 / 删除账号 / 启动时触发。新接口
+  `POST /panel/api/proxy/slots/autoassign {per_slot, probe, remember, only_unbound}`
+  （409 = 没有可用出口）。设置页「账号代理槽」新增「每槽账号数」+「自动分配」，
+  自动发现列表显示「握手 / 全程」并且超限出口不可勾选。
+- **启停即重排（2026-10-24 二次补充）**：绑定只属于启用账号——`assign_proxy_slots()`
+  开头先释放所有停用账号占着的槽位（报告 `released` 计数、日志
+  `released N disabled account(s)`），其余启用账号随即按 N/槽 重新均分；账号重新启用后
+  下一次分配自动纳入。自动模式关着时不做任何释放，手动绑定不受启停影响。
+- 判定：`grep -c "def plan_slot_assignment" wb_proxy.py`=1、
+  `grep -c "handshake_ms" wb_proxy.py`≥3、
+  `grep -c "released %d disabled account" wb_proxy.py`=1、
+  `python3 tests/_test_proxy_gate_autoassign.py`
+  86 例全过。升级后 `accounts/settings.json` 里没有该键 = 关闭，行为不变。
+
