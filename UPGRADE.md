@@ -21,22 +21,35 @@ git remote -v
 
 ## 一、当前基线
 
-- 基于上游 **v1.7.29**（commit `af37786`），2026-10-22 升级（v1.7.28 → v1.7.29，14 个提交）
-- 其上**恰好一个**「运维改造」提交（提交信息以 `ops:` 开头），标签 `ops-20261022b`
-- 升级时**重放这一个提交**即可
+- 基于上游 **v1.8.0**（commit `4f7ae6f`），2026-10-25 升级（v1.7.29 → v1.8.0，54 个提交）
+- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11 各自的 feat/fix + docs），标签 `ops-20261025`
+- 升级时**重放这一串提交**即可（顺序见 `git log af37786..main` 式的区间）
 
-> v1.7.28 → v1.7.29 的上游改动：**启动时补一次更新检查**（#589，重启后不必再手点「立即检查更新」，
-> 预算 6 次/小时）、**修 macOS/Linux 一键更新必然回滚**（解包丢 755 权限 → 重启 EACCES）、
-> **修保存 API Key 时丢掉 `accounts` / `concurrency_limit`**（#592），以及我们自己提的四个
-> 手机端看板 PR（#585 打卡类名、#586 用量统计每项一行、#587 账号卡出口/权重同行、
-> #588 统计条积分独占一行）。rebase 冲突只有 `dashboard.html` 3 处 + `README.md` 2 处，
-> **全是注释措辞、套件计数与 `Unreleased` 条目**，无逻辑冲突。
+> v1.7.29 → v1.8.0 的上游要点：**我们提的 PR 全部被收编**——#607（流式单 chunk id，
+> 对应旧补丁 6.5）、#612（账号级并发上限 + 更稳的会话粘滞键，对应旧补丁 5/6），
+> 这三个本地补丁**自本版起作废勿重打**。上游另有：**SSE 心跳**（#578，15s 静默发
+> `: keepalive`，三条流式路径共用）、**Token 保活提前量 2h→48h**（`WB_KEEPALIVE_LEAD_HOURS`）、
+> **成功请求解除凭证失效标记**、**重启后恢复 429 模型级限流窗口**、**静态 API Key 账号**
+> （企业微信 WorkBuddy / CodeBuddy CLI，#572）、**版本回退 + 更新备份**（默认留 1 份）、
+> **修复调度器日志黑洞**（读错模块副本）、**修复签到把业务失败记成成功**、
+> **修复面板 keep-alive `{}GET 501`**、**修复 10105 活跃会话 10 条上限**（网页活跃收尾释放）、
+> **Codex remote compaction v2**、**跨出口回退（国际版→国内版，默认关）**、
+> **11-128 GUI 指纹修复**、**minimax CN 专属判定收窄 + OpenCode 真实上下文上限**、
+> **会员档位胶囊**、**看板自绘下拉框**。rebase 冲突集中在 `wb_proxy.py`（补丁 7 透明等待
+> ×2 处、补丁 10 chat head ×1 处）、`dashboard.html`（补丁 5/6 词典区 ×1 处）、
+> `README.md` ×3 处；**已被上游收编的补丁内容一律取上游侧**。
+> 已知坑：dc2013b 里旧补丁 5/6 的设置卡 HTML 会在 rebase 时**悄悄重复插入**
+> （`账号级并发上限`/`更稳的会话粘滞键` 卡片出现两份、元素 id 重复）——升级后必须
+> `diff <(git show upstream/main:dashboard.html) dashboard.html` 核对卡片数量与上游一致。
+> 测试基线：229 个套件（170 Python + 59 JS），**225 过 / 4 挂**——`_test_breaker_fairness`
+> /`_test_egress_backoff`/`_test_pool_backoff` 为上游既有失败（纯上游同样挂），
+> `_test_release_engineering` 需要把 README 套件计数改成实际值。
 
 > 想随时看「本地到底改了哪些东西」：
 > ```bash
-> git show ops-20261022b              # 完整 diff
-> git diff upstream/main ops-20261022b # 同上，指定区间
-> ```
+> git show ops-20261025              # 完整 diff
+> git diff upstream/main ops-20261025 # 同上，指定区间
+> ``
 
 ## 二、本地改造清单（从上游拉新版后必须重做）
 
@@ -51,12 +64,12 @@ v1.7.9 的 `08c274d` 收编了旧 P0 归位补丁）。
 | ~~3~~ | ~~看板移动端 3a–3h 全部八项~~ | **已被上游收编**（v1.7.17–v1.7.20，PR #480/#481/#482/#496/#497/#498/#501），勿重打；判定命令见下方 3a–3h 各节 |
 | ~~3i~~ | ~~打卡按钮组补回 `tb-checkin` 类~~ | **已被上游收编**（v1.7.29 / PR #585），勿重打；`grep -c "tb-group tb-checkin" dashboard.html` 应为 1（上游自带） |
 | 4 | 部署脚本 + `.gitignore` + 显式开启 Messages（`start.sh` 等） | 服务不便启停；**v1.7.8 起 Anthropic Messages 默认关闭**，客户端会 400 |
-| 5 | 账号级并发上限（`wb_settings.py` + `wb_proxy.py` + `dashboard.html`） | 两个大上下文会话落到同一账号时上游按账号计 token 会 429，换号后缓存归零、首字 1.5s → 5-6s。默认 0 = 不限，与上游行为一字不差 |
-| 6 | 更稳的会话粘滞键（`wb_settings.py` + `wb_proxy.py` + `dashboard.html`） | 会话键只用 [system, 首条 user]，开场白相同的两个会话共享绑定槽、每轮互换账号，缓存每轮归零。默认关，关着时与上游逻辑一字不差 |
+| ~~5~~ | ~~账号级并发上限~~ | **已被上游收编**（v1.8.0 / PR #612，`feat(dispatch): per-account concurrency cap and stable affinity key`），勿重打；`grep -c "def account_slot_acquire" wb_proxy.py` 应为 1（上游自带） |
+| ~~6~~ | ~~更稳的会话粘滞键~~ | **已被上游收编**（v1.8.0 / PR #612，与补丁 5 同一提交），勿重打；`grep -c "def affinity_stable_key_enabled" wb_proxy.py` 应为 1（上游自带） |
 | 7 | 整池冷却时的透明等待（`wb_proxy.py` + `start.sh`） | 一次短暂 429 会让下游（CPA / Claude Code / harness）中断整轮、要人手动重发。默认等 30s，窗口内恢复就接着发，客户端看不到 429 |
 | ~~8~~ | ~~看板用量统计窄屏排版（仅 ≤640px）~~ | **已被上游收编**（v1.7.29 / PR #588），勿重打；判定：`grep -c "#pageAnalytics .kpi .s .kvi{display:block}" dashboard.html` 应为 1（上游自带） |
 
-### 补丁 5：账号级并发上限（默认关闭）
+### ~~补丁 5：账号级并发上限~~（**已被上游收编** v1.8.0 / PR #612，勿重打）
 
 **要解决的问题**：上游按「账号 + 分钟」计 token，而一个大上下文会话单请求就带十几万 token。
 两个会话同时压在一个账号上很容易过百万 token/分钟 → 上游 429 → 网关停放该账号并换号 →
@@ -93,7 +106,7 @@ v1.7.9 的 `08c274d` 收编了旧 P0 归位补丁）。
 **验证**：`python3 tests/_test_account_concurrency.py`（19 个用例，含真实 `open_upstream` +
 打桩池的调度测试：满号跳过、名额占到 close、全满报池忙、失败路径不泄漏、关闭时行为不变）。
 
-### 补丁 6：更稳的会话粘滞键（默认关闭）
+### ~~补丁 6：更稳的会话粘滞键~~（**已被上游收编** v1.8.0 / PR #612，勿重打）
 
 **要解决的问题**：`affinity_route()` 只用 `msgs[:2]`（system + 首条 user）算会话键。
 两个开场白相同的会话（同一客户端、同一模板首问）算出同一个 `pfx-xxx`，共享同一个
@@ -123,7 +136,7 @@ v1.7.9 的 `08c274d` 收编了旧 P0 归位补丁）。
 
 **回退**：面板取消勾选即可，立刻回到上游逻辑，无需改代码。
 
-### 补丁 6.5：流式回复只带一个 chunk id（`wb_proxy.py`）
+### ~~补丁 6.5：流式回复只带一个 chunk id~~（**已被上游收编** v1.8.0 / PR #607，勿重打）
 
 **要解决的问题**：一次流式回复同时带**两个 chunk id**——上游原始帧用上游 id（`01a1…`），
 而网关重写的正文帧用自己的 `chatcmpl-wb-*`，于是同一轮回复在客户端看来是两条交错的流。
@@ -471,8 +484,8 @@ git rebase upstream/main
 #   - 想放弃重来：`git rebase --abort`
 
 # 3) 逐项确认补丁仍在（对照第二节的「判定」命令）
-grep -c "account_slot_acquire" wb_proxy.py                  # 补丁 5，应 >= 7
-grep -c "affinity_stable_key_enabled" wb_proxy.py wb_settings.py   # 补丁 6，应 >= 11 / 4
+grep -c "account_slot_acquire" wb_proxy.py                  # 上游自带（原补丁 5），应 >= 7
+grep -c "affinity_stable_key_enabled" wb_proxy.py wb_settings.py   # 上游自带（原补丁 6），应 >= 11 / 4
 grep -c "One response must carry one id" wb_proxy.py        # 补丁 6.5，应 1（上游合入 #607 后由上游自带）
 grep -c "transparent_wait_reason" wb_proxy.py               # 补丁 7，应 2
 grep -c "narrow ? 0 : 14" dashboard.html                    # 补丁 3a，应 2 处
@@ -483,8 +496,8 @@ grep -n "WB_ENABLE_ANTHROPIC_MESSAGES" start.sh             # 补丁 4
 
 # 5) 跑测试（见第五节；本机基线为「除下述既有失败外全过」）
 python3 tests/run_all.py --jobs 2 --timeout 300
-python3 tests/_test_account_concurrency.py     # 补丁 5，24 例
-python3 tests/_test_affinity_stable_key.py     # 补丁 6，14 例
+python3 tests/_test_account_concurrency.py     # 上游自带（原补丁 5），24 例
+python3 tests/_test_affinity_stable_key.py     # 上游自带（原补丁 6），14 例
 python3 tests/_test_stream_single_id.py        # 补丁 6.5，15 断言
 python3 tests/_test_transparent_retry.py       # 补丁 7
 
