@@ -23,6 +23,10 @@
 #                      下游（CPA / Claude Code / 各种 harness）拿到 429 只会中断
 #                      这一轮、要人手动重发，而这些冷却窗口大多只有几十秒，等一会
 #                      儿就能自己继续。设 0 恢复上游行为（立刻 429）。
+#   WB_PROXY_DISCOVER_HOST / WB_PROXY_DISCOVER_PORTS
+#                      账号代理槽的自动发现目标（mihomo-pool 的逐节点端口）。
+#                      本机 8006 池子暴露 127.0.0.1:17901-17932。仅在面板/配置
+#                      里启用 proxy_slots 后才会实际使用；未配置时行为与关闭一致。
 DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$DIR"
 PORT="${WB_PORT:-8788}"
@@ -31,8 +35,14 @@ WB_ENABLE_ANTHROPIC_MESSAGES="${WB_ENABLE_ANTHROPIC_MESSAGES:-1}"
 WB_MAX_CONCURRENT_CHAT="${WB_MAX_CONCURRENT_CHAT:-96}"
 WB_CHAT_SLOT_WAIT="${WB_CHAT_SLOT_WAIT:-60}"
 WB_TRANSPARENT_RETRY_WAIT="${WB_TRANSPARENT_RETRY_WAIT:-30}"
+WB_PROXY_DISCOVER_HOST="${WB_PROXY_DISCOVER_HOST:-127.0.0.1}"
+WB_PROXY_DISCOVER_PORTS="${WB_PROXY_DISCOVER_PORTS:-17901-17932}"
+# 机场节点跨洋握手 300-600ms 起步，上游默认 300ms 会全拒；放宽到 1000ms。
+WB_PROXY_RTT_LIMIT_MS="${WB_PROXY_RTT_LIMIT_MS:-1000}"
+WB_PROXY_LATENCY_LIMIT_MS="${WB_PROXY_LATENCY_LIMIT_MS:-2000}"
 export TZ WB_ENABLE_ANTHROPIC_MESSAGES WB_MAX_CONCURRENT_CHAT WB_CHAT_SLOT_WAIT
-export WB_TRANSPARENT_RETRY_WAIT
+export WB_TRANSPARENT_RETRY_WAIT WB_PROXY_DISCOVER_HOST WB_PROXY_DISCOVER_PORTS
+export WB_PROXY_RTT_LIMIT_MS WB_PROXY_LATENCY_LIMIT_MS
 
 PANEL_ARGS=()
 if [ -n "${WB_PANEL_PASSWORD:-}" ]; then
