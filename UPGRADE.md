@@ -21,9 +21,21 @@ git remote -v
 
 ## 一、当前基线
 
-- 基于上游 **v1.8.0**（commit `4f7ae6f`），2026-10-25 升级（v1.7.29 → v1.8.0，54 个提交）
-- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11 各自的 feat/fix + docs），标签 `ops-20261025`
-- 升级时**重放这一串提交**即可（顺序见 `git log af37786..main` 式的区间）
+- 基于上游 **v1.9.2**（commit `736d08e`），2026-10-30 升级（v1.8.0 → v1.9.2，33 个提交）
+- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11 各自的 feat/fix + docs），标签 `ops-20261030`
+- 升级时**重放这一串提交**即可（顺序见 `git log 736d08e..main` 式的区间）
+
+> v1.8.0 → v1.9.2 的上游要点：**没有收编我们剩余的本地补丁**（补丁 7 透明等待 / 9 affinity 落盘 /
+> 10 chat head / 11 代理门禁+自动分配在 `upstream/main` 里 `grep` 均为 0，继续保留）。
+> 上游新增：#658（pbkdf2 缺失明确 500 + `crypto_ok`）、`WB_STOP_AT_SSE_DONE=1` 流式终止、
+> `WB_CACHE_HTTP_ERROR_BODY=1` 错误正文缓存、`/health` 按区域与模型报可用数、
+> **下拉误判全宽竖排改为只认显式 `width:100%`**（= 我们 a390078 的 ①，已被上游收编）、
+> 活动表短标签不折行、昵称列分档截断、DSH 文件引用段 11-128 指纹中和、池空报错说清等多久、
+> 6004 也保住「配额用尽」、跨出口回退等。rebase 冲突：`wb_proxy.py` 3 处（补丁 7 ×2、
+> 补丁 10 ×1）、`dashboard.html` 1 处（词典区）、`README.md` 3 处；启动处取
+> `maybe_auto_assign_slots("startup") + POOL.apply_reserve_credits()` 两侧合并。
+> 测试基线：237 个套件（178 Python + 59 JS），**234 过 / 3 挂**——仅 `_test_breaker_fairness`
+> /`_test_egress_backoff`/`_test_pool_backoff` 三个上游既有失败（纯上游同样挂）。
 
 > v1.7.29 → v1.8.0 的上游要点：**我们提的 PR 全部被收编**——#607（流式单 chunk id，
 > 对应旧补丁 6.5）、#612（账号级并发上限 + 更稳的会话粘滞键，对应旧补丁 5/6），
@@ -47,8 +59,8 @@ git remote -v
 
 > 想随时看「本地到底改了哪些东西」：
 > ```bash
-> git show ops-20261025              # 完整 diff
-> git diff upstream/main ops-20261025 # 同上，指定区间
+> git show ops-20261030              # 完整 diff
+> git diff upstream/main ops-20261030 # 同上，指定区间
 > ``
 
 ## 二、本地改造清单（从上游拉新版后必须重做）
@@ -68,6 +80,9 @@ v1.7.9 的 `08c274d` 收编了旧 P0 归位补丁）。
 | ~~6~~ | ~~更稳的会话粘滞键~~ | **已被上游收编**（v1.8.0 / PR #612，与补丁 5 同一提交），勿重打；`grep -c "def affinity_stable_key_enabled" wb_proxy.py` 应为 1（上游自带） |
 | 7 | 整池冷却时的透明等待（`wb_proxy.py` + `start.sh`） | 一次短暂 429 会让下游（CPA / Claude Code / harness）中断整轮、要人手动重发。默认等 30s，窗口内恢复就接着发，客户端看不到 429 |
 | ~~8~~ | ~~看板用量统计窄屏排版（仅 ≤640px）~~ | **已被上游收编**（v1.7.29 / PR #588），勿重打；判定：`grep -c "#pageAnalytics .kpi .s .kvi{display:block}" dashboard.html` 应为 1（上游自带） |
+| 9 | 会话绑定落盘 + `body_wait` 日志（`wb_accounts.py` + `wb_proxy.py`） | 重启后所有长会话被重新分到别的账号、整段前缀重算（180k 上下文缓存 99.9%→15%，ttft 2.5s→15.4s）；上传慢与上游慢无法从日志区分 |
+| 10 | 请求到达即记日志 `chat head`（`wb_proxy.py`） | 客户端上传慢时那段窗口日志全空白，分不清「请求没到本进程」与「网关慢」 |
+| 11 | 代理出口握手延迟门禁 + 每 N 个账号自动分配（`wb_proxy.py` + `wb_settings.py` + `dashboard.html`） | 跨洋整请求口径把可用出口全判死或全放行；账号多了要一个个手工绑出口 |
 
 ### ~~补丁 5：账号级并发上限~~（**已被上游收编** v1.8.0 / PR #612，勿重打）
 
@@ -486,8 +501,16 @@ git rebase upstream/main
 # 3) 逐项确认补丁仍在（对照第二节的「判定」命令）
 grep -c "account_slot_acquire" wb_proxy.py                  # 上游自带（原补丁 5），应 >= 7
 grep -c "affinity_stable_key_enabled" wb_proxy.py wb_settings.py   # 上游自带（原补丁 6），应 >= 11 / 4
-grep -c "One response must carry one id" wb_proxy.py        # 补丁 6.5，应 1（上游合入 #607 后由上游自带）
+grep -c "One response must carry one id" wb_proxy.py        # 上游自带（原补丁 6.5 / PR #607）
 grep -c "transparent_wait_reason" wb_proxy.py               # 补丁 7，应 2
+grep -c "body_wait" wb_proxy.py                             # 补丁 9，应 >= 2
+grep -c "_maybe_flush" wb_accounts.py                       # 补丁 9，应 >= 3
+grep -c "chat head" wb_proxy.py                             # 补丁 10，应 2
+grep -c "def plan_slot_assignment" wb_proxy.py              # 补丁 11，应 1
+grep -c "handshake_ms" wb_proxy.py                          # 补丁 11，应 >= 3（实测 13）
+grep -c 'width:78px">权重' dashboard.html                    # 权重列修复，应 1
+grep -c "cs-panel{position:fixed" dashboard.html             # 补丁（面板脱离祖先裁剪），应 1
+grep -c "function placePanel" dashboard.html                 # 同上，应 1
 grep -c "narrow ? 0 : 14" dashboard.html                    # 补丁 3a，应 2 处
 grep -c "tb-group tb-checkin" dashboard.html                # 3i，上游 v1.7.29 起自带，应 1
 grep -n "WB_ENABLE_ANTHROPIC_MESSAGES" start.sh             # 补丁 4
@@ -576,17 +599,18 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
    （补丁 6.5；出现 2 个 id 说明补丁丢失，客户端会卡「生成中」）
 9. **账号级并发上限**：面板设 1 → 6 路并发应落到 6 个不同账号；设 0 → 仍落 1 个账号
 10. **更稳的会话粘滞键**：两个同开场白会话，开关关 → 同账号；开 → 两个账号
-11. `/` 响应头 `Server: wb-proxy/1.7.29`
+11. `/` 响应头 `Server: wb-proxy/1.9.2`
 
-**测试基线**：`tests/run_all.py` 在本机 v1.7.29 基线为 **211 通过 / 3 失败**（共 214 套件），
+**测试基线**：`tests/run_all.py` 在本机 v1.9.2 基线为 **234 通过 / 3 失败**（共 237 套件），
 与本地改造无关：
 - `_test_anthropic_http.py`（38）/ `_test_anthropic_messages.py`（58）：必须 **全过**（本地补丁相关）
-- 补丁自建套件必须全过：`_test_account_concurrency.py`（24）、`_test_affinity_stable_key.py`（14）、
-  `_test_stream_single_id.py`（15 断言）、`_test_transparent_retry.py`
-- 已知既有失败（**纯净 upstream v1.7.29 同样 3 挂**，与本地改造无关）：
+- 上游自带（勿重打）：`_test_account_concurrency.py`（24）、`_test_affinity_stable_key.py`（14）、
+  `_test_stream_single_id.py`（15 断言）
+- 本地补丁自建套件必须全过：`_test_transparent_retry.py`（补丁 7）、
+  `_test_affinity_persistence.py`（补丁 9）、`_test_proxy_gate_autoassign.py`（补丁 11）
+- 已知既有失败（**纯净 upstream v1.9.2 同样 3 挂**，与本地改造无关）：
   `_test_breaker_fairness.py`、`_test_egress_backoff.py`、`_test_pool_backoff.py`。
-  三者都是上游 v1.7.18「模型级 5xx 不再计入账号熔断」改行为后测试未同步；
-  v1.7.27 的 `e18b7aa` 已修好 `_test_run_all_contracts.py` 的 /proc walk 用例。
+  三者都是上游 v1.7.18「模型级 5xx 不再计入账号熔断」改行为后测试未同步。
 
 ## 六、排查提示
 
@@ -613,7 +637,7 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
 - **`body_wait` 日志**（`wb_proxy.py`）：`handle_one_request` 记 `_arrived_at`，`_read_payload` 记读完 body
   的耗时，`chat:` 行在 ≥1s 时追加 ` body_wait=Nms`。此前这行只在 body 读完后才写，客户端上传慢
   与上游慢无法区分，日志里表现为"请求几分钟后才出现"甚至不出现。
-- 判定：`grep -c "_maybe_flush" wb_accounts.py`=3；`grep -c "body_wait" wb_proxy.py`=2；
+- 判定：`grep -c "_maybe_flush" wb_accounts.py`>=3（v1.9.2 实测 5）；`grep -c "body_wait" wb_proxy.py`>=2（实测 4）；
   `python3 tests/_test_affinity_persistence.py` 10 例全过；重启后 `accounts/affinity.json` 条目数 >0。
 
 ### 补丁 10（2026-10-23）：请求到达即记日志（`chat head`）
