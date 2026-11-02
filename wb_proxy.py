@@ -1174,6 +1174,19 @@ def _apply_model_aliases(payload, aliases):
     log("alias: model %s -> %s" % (name, target))
 
 
+def client_facing_model(handler, model):
+    """The model name to echo back: the operator alias when one was used.
+
+    The alias table only rewrites the *request*; the reply otherwise names the
+    upstream id, and a client that verifies the echoed model against the one it
+    sent sees a mismatch. Falling back to `model` keeps every un-aliased request
+    byte-identical. Module-level so the streaming helpers and the tests that
+    drive them with a stub handler can call it too.
+    """
+    original = str(getattr(handler, "_client_model", "") or "").strip()
+    return original or model
+
+
 # The WorkBuddy AI desktop app caches its account product config here on every
 # launch. That file carries the real model catalog the app shows in its picker
 # (21 models, incl. deepseek-v4.1-flash / gpt-6-astra) - the CLI-facing
@@ -27478,6 +27491,9 @@ class Handler(BaseHTTPRequestHandler):
             # A retry reuses the headers already on the wire; the client has not
             # seen a single byte, so a fresh chunk id is safe.
             stream_chunk_id = f"chatcmpl-wb-{uuid.uuid4().hex[:16]}"
+            # Synthesized text/tool frames must carry the same name the client
+            # sent, like the upstream frames rewritten below.
+            echo_model = client_facing_model(self, model)
             emitted = False
             last_usage = None
             first_ms = None
@@ -27522,10 +27538,10 @@ class Handler(BaseHTTPRequestHandler):
                 for action in actions:
                     if action[0] == "text":
                         if action[1]:
-                            write_chunk(chat_text_chunk(model, action[1], chunk_id=stream_chunk_id))
+                            write_chunk(chat_text_chunk(echo_model, action[1], chunk_id=stream_chunk_id))
                     else:
                         synthesized_calls = True
-                        for payload in chat_tool_call_chunks(model, action[1], chunk_id=stream_chunk_id):
+                        for payload in chat_tool_call_chunks(echo_model, action[1], chunk_id=stream_chunk_id):
                             write_chunk(payload)
 
             def before_read():
@@ -27589,9 +27605,11 @@ class Handler(BaseHTTPRequestHandler):
                             maybe["id"] = stream_chunk_id
                         # The upstream may echo its outbound alias (-sg). The
                         # client asked for the logical id, and model-scoped
-                        # chunk helpers below must use that same id too.
+                        # chunk helpers below must use that same id too. Route
+                        # the logical id through client_facing_model so an
+                        # operator alias is echoed back when one was used.
                         if isinstance(maybe, dict) and maybe.get("model"):
-                            maybe["model"] = model
+                            maybe["model"] = client_facing_model(self, model)
                         cleaned = clean_chunk(
                             json.dumps(maybe, ensure_ascii=False)
                             if isinstance(maybe, dict) else data)
@@ -27725,6 +27743,9 @@ class Handler(BaseHTTPRequestHandler):
                 pass
         if egress_on and egress_key:
             wb_egress.note_success(egress_key)
+        if isinstance(result, dict):
+            result["model"] = client_facing_model(
+                self, result.get("model") or model)
         wall = int((time.time() - t_start) * 1000)
         first_at = result.get("first_chunk_at")
         # Measured from request arrival so streaming and non-streaming are comparable.

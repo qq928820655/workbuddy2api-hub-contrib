@@ -156,6 +156,17 @@ check("the alias is listed for a key restricted to it",
       "gpt-4o-mini" in listed, listed)
 
 print()
+print("[4e] the reply echoes the name the client sent")
+
+class _Echo:
+    _client_model = "my-alias"
+check("an alias request is echoed as the alias",
+      P.client_facing_model(_Echo(), "deepseek-v4.1-flash") == "my-alias")
+check("a plain request keeps the upstream id",
+      P.client_facing_model(object(), "deepseek-v4.1-flash")
+      == "deepseek-v4.1-flash")
+
+print()
 print("[5] the background rewrite remains independent")
 
 body = {"model": "gpt-5.6-terra"}
