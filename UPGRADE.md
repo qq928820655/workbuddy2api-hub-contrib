@@ -21,9 +21,16 @@ git remote -v
 
 ## 一、当前基线
 
-- 基于上游 **v1.9.2**（commit `736d08e`），2026-10-30 升级（v1.8.0 → v1.9.2，33 个提交）
-- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11 各自的 feat/fix + docs），标签 `ops-20261030`
-- 升级时**重放这一串提交**即可（顺序见 `git log 736d08e..main` 式的区间）
+- 基于上游 **v1.10.1**（commit `28527f4`），2026-11-02 升级（v1.10.0 → v1.10.1）
+- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11/12/13 各自的 feat/fix + docs），标签 `ops-20261102`
+- 升级时**重放这一串提交**即可（`git log upstream/main..main`）
+
+> v1.10.0 → v1.10.1 的上游要点：**没有收编任何本地补丁**。冲突仅 `README.md` 一处
+> （套件计数行），解为 **249 个套件：186 Python + 63 JS**（上游 244=181+63，本地
+> 补丁自带 5 个 Python 套件）。测试基线 **245 过 / 4 挂**：3 个上游既有失败
+> （`_test_breaker_fairness` / `_test_egress_backoff` / `_test_pool_backoff`）+
+> `_test_rate_limit_reset_at`（v1.10.1 自带夹具时间戳 2026-11-02 03:04:05 UTC+8 已过期，
+> 纯 upstream worktree 同样挂，非回归）。
 
 > v1.8.0 → v1.9.2 的上游要点：**没有收编我们剩余的本地补丁**（补丁 7 透明等待 / 9 affinity 落盘 /
 > 10 chat head / 11 代理门禁+自动分配在 `upstream/main` 里 `grep` 均为 0，继续保留）。
@@ -83,6 +90,8 @@ v1.7.9 的 `08c274d` 收编了旧 P0 归位补丁）。
 | 9 | 会话绑定落盘 + `body_wait` 日志（`wb_accounts.py` + `wb_proxy.py`） | 重启后所有长会话被重新分到别的账号、整段前缀重算（180k 上下文缓存 99.9%→15%，ttft 2.5s→15.4s）；上传慢与上游慢无法从日志区分 |
 | 10 | 请求到达即记日志 `chat head`（`wb_proxy.py`） | 客户端上传慢时那段窗口日志全空白，分不清「请求没到本进程」与「网关慢」 |
 | 11 | 代理出口握手延迟门禁 + 每 N 个账号自动分配（`wb_proxy.py` + `wb_settings.py` + `dashboard.html`） | 跨洋整请求口径把可用出口全判死或全放行；账号多了要一个个手工绑出口 |
+| 12 | 任务型账号（`enabled=false, tasksEnabled=true`）也保留代理出口（`wb_proxy.py`） | 关掉转发只留任务的号被释放出口 → 签到/成长/旅行/打卡全从本机 IP 出去，多号同 IP 关联 |
+| 13 | 面板「模型映射」（对外名 → 上游原名）+ `/v1/models` 宣告别名 + key 限制接受两种写法 + 回复回显别名（`wb_proxy.py` + `wb_settings.py` + `dashboard.html`） | 别名只能手改 `accounts/settings.json`；客户端清单里看不到别名、回显 model 与请求不符 |
 
 ### ~~补丁 5：账号级并发上限~~（**已被上游收编** v1.8.0 / PR #612，勿重打）
 
@@ -514,6 +523,11 @@ grep -c "function placePanel" dashboard.html                 # 同上，应 1
 grep -c "narrow ? 0 : 14" dashboard.html                    # 补丁 3a，应 2 处
 grep -c "tb-group tb-checkin" dashboard.html                # 3i，上游 v1.7.29 起自带，应 1
 grep -n "WB_ENABLE_ANTHROPIC_MESSAGES" start.sh             # 补丁 4
+grep -c "def _slot_active" wb_proxy.py                       # 补丁 12，应 1
+grep -c "def alias_model_entries" wb_proxy.py                # 补丁 13，应 1
+grep -c "def client_facing_model" wb_proxy.py                # 补丁 13，应 1
+grep -c "def set_model_aliases" wb_settings.py               # 补丁 13，应 1
+grep -c "saveModelAliases" dashboard.html                    # 补丁 13，应 >= 2
 
 # 4) 依赖：本仓库纯标准库、无 requirements.txt；若上游新增依赖则 pip 装（本机走清华源）
 
@@ -523,6 +537,8 @@ python3 tests/_test_account_concurrency.py     # 上游自带（原补丁 5）�
 python3 tests/_test_affinity_stable_key.py     # 上游自带（原补丁 6），14 例
 python3 tests/_test_stream_single_id.py        # 补丁 6.5，15 断言
 python3 tests/_test_transparent_retry.py       # 补丁 7
+python3 tests/_test_proxy_gate_autoassign.py   # 补丁 11 + 12
+python3 tests/_test_model_alias_and_realm.py   # 补丁 13
 
 # 6) 重启服务并验证（见第五节）
 ./stop.sh && sleep 3 && ./start.sh
@@ -680,4 +696,40 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
   `grep -c "released %d disabled account" wb_proxy.py`=1、
   `python3 tests/_test_proxy_gate_autoassign.py`
   86 例全过。升级后 `accounts/settings.json` 里没有该键 = 关闭，行为不变。
+
+### 补丁 12（2026-11-02）：任务型账号也保留代理出口
+
+- **问题**：绑定只属于「启用」账号，而 `enabled=false, tasksEnabled=true` 的号仍会
+  自己发请求（签到 / 成长 / 旅行 / 每日活跃打卡）——它的出口被释放后，这些请求全从
+  本机 IP 出去，多号同 IP 就是关联特征。
+- **改法**（`wb_proxy.py`）：新增 `_slot_active(account)` = `enabled or task_active()`；
+  `assign_proxy_slots()` / `proxy_slots_view()` / `plan_slot_assignment()` 的候选全改用它；
+  `POST /accounts/set` 的 `tasksEnabled` 分支也触发 `maybe_auto_assign_slots()`（与
+  `enabled` 一致，开关任务即重平衡）；释放日志由 "disabled" 改为 "inactive"。
+- **语义**：两个开关都关 = 释放出口；只开任务 = 保留出口。
+- 判定：`grep -c "def _slot_active" wb_proxy.py`=1、
+  `python3 tests/_test_proxy_gate_autoassign.py`（+6 例：task-only 保留 / 全停释放 /
+  切任务重平衡）。
+
+### 补丁 13（2026-11-02）：面板模型映射（对外名 → 上游原名）
+
+- **为什么要客户端可见**：别名是**客户端要发的名字**，不是内部别名。所以三件事必须
+  一起做，否则会出现「能调用但客户端清单里没有」「回显 model 与请求不符」：
+  1. `/v1/models` 宣告别名（`alias_model_entries()`，仅当目标在清单里）；
+  2. key 的模型白名单同时接受别名与真名（`_key_model_error` 靠 `self._client_model`）；
+  3. 回复里回显**客户端发的名字**（模块级 `client_facing_model(handler, model)`，
+     流式 chunk 与非流式 body 都改）。
+- **存储**（`wb_settings.py`）：`set_model_aliases()` / `model_aliases()`，
+  `MAX_MODEL_ALIASES=200`（超长报错而不是静默截断）；`settings/save` 接受
+  `model_aliases`，`runtime_settings_view` 暴露它。
+- **面板**（`dashboard.html`）：设置页「模型映射」卡，textarea 一行一条
+  `对外名 = 上游原名`，`saveModelAliases()` 提交。
+- **注意**：`client_facing_model` 必须是**模块级函数**，不能写成 Handler 方法——
+  `tests/_test_sse_termination.py` 用 stub handler 驱动 `_chat_stream_response`，
+  方法版会 AttributeError。
+- 判定：`grep -c "def alias_model_entries" wb_proxy.py`=1、
+  `grep -c "def client_facing_model" wb_proxy.py`=1、
+  `grep -c "def set_model_aliases" wb_settings.py`=1、
+  `grep -c "saveModelAliases" dashboard.html`≥2、
+  `python3 tests/_test_model_alias_and_realm.py`（+9 例）。
 
