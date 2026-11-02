@@ -7539,7 +7539,7 @@ def proxy_slots_view():
     if POOL:
         for account in POOL.accounts:
             slot_id = account.proxy_slot
-            if slot_id and account.enabled:
+            if slot_id and _slot_active(account):
                 counts[slot_id] = counts.get(slot_id, 0) + 1
     try:
         for account in wb_codearts.pool_for(ACCOUNTS_DIR).accounts:
@@ -7687,8 +7687,23 @@ def plan_slot_assignment(uids, slot_ids, per_slot=3):
             for index, uid in enumerate(uids or [])]
 
 
+def _slot_active(account):
+    """Whether this account still needs an exit for anything at all.
+
+    API dispatch is gated by `enabled`, but check-in / growth / travel / daily
+    activity are gated by `tasksEnabled` and those tasks make their own
+    outbound calls. A task-only account (`enabled=false, tasksEnabled=true`)
+    must therefore keep its exit: releasing it would send every scheduled
+    request out of the host IP, which is exactly what the exit binding exists
+    to avoid. Both flags off means the account is fully idle and its exit goes
+    back into the pool.
+    """
+    return bool(getattr(account, "enabled", False)
+                or getattr(account, "task_active", lambda: False)())
+
+
 def assign_proxy_slots(per_slot=3, probe=True, only_unbound=False):
-    """Bind enabled accounts to enabled proxy slots. Returns a report.
+    """Bind active accounts to enabled proxy slots. Returns a report.
 
     `probe` re-tests each slot and keeps only the exits that pass the latency
     gate, which is what the panel's one-click assignment uses: binding a live
@@ -7696,18 +7711,18 @@ def assign_proxy_slots(per_slot=3, probe=True, only_unbound=False):
     mode never probes (see maybe_auto_assign_slots) so that saving a slot or
     importing accounts cannot stall on eight unreachable proxies.
 
-    Bindings belong to enabled accounts only: a disabled account releases its
-    exit on the spot (the report counts it under `released`), so the exits it
-    held go back into the pool, and re-enabling the account later puts it back
-    into the next plan.
+    Bindings belong to active accounts (`enabled` or `tasksEnabled`): an
+    account with both off releases its exit on the spot (the report counts it
+    under `released`), so the exits it held go back into the pool, and turning
+    either flag back on puts it into the next plan.
     """
     released = 0
     for account in (POOL.accounts if POOL else []):
-        if not account.enabled and account.proxy_slot:
+        if not _slot_active(account) and account.proxy_slot:
             if POOL.set_proxy_slot(str(account.uid), "") is not None:
                 released += 1
     if released:
-        log("proxy slots: released %d disabled account(s)" % released)
+        log("proxy slots: released %d inactive account(s)" % released)
     slots = [entry for entry in wb_settings.proxy_slots(ACCOUNTS_DIR)
              if entry.get("enabled", True)]
     if not slots:
@@ -7729,7 +7744,7 @@ def assign_proxy_slots(per_slot=3, probe=True, only_unbound=False):
                 "assigned": 0, "released": released, "per_slot": per_slot,
                 "probes": probes}
     accounts = [account for account in (POOL.accounts if POOL else [])
-                if account.enabled]
+                if _slot_active(account)]
     if only_unbound:
         accounts = [account for account in accounts if not account.proxy_slot]
     accounts.sort(key=lambda account: str(account.uid))
@@ -11859,6 +11874,7 @@ def runtime_settings_view():
         # 改了要重启进程才生效，混进可写设置里只会让人以为存了就有效。
         "transparent_retry_wait": TRANSPARENT_RETRY_WAIT,
         "enable_anthropic_messages": wb_settings.enable_anthropic_messages(ACCOUNTS_DIR),
+        "model_aliases": wb_settings.model_aliases(ACCOUNTS_DIR),
         "filter_models_by_key": wb_settings.filter_models_by_key(ACCOUNTS_DIR),
         "reasoning_effort_map": wb_settings.reasoning_effort_map(ACCOUNTS_DIR),
         "models_only_available": wb_settings.models_only_available(ACCOUNTS_DIR),
@@ -12789,6 +12805,44 @@ def fetch_models(realm=None):
             _catalog_meta[r] = {"source": source, "fetched_at": time.time(),
                                 "file_mtime": file_mtime}
         return entries
+def alias_model_entries(data, aliases):
+    """Append operator aliases to a /v1/models list, pointing at their target.
+
+    The alias table rewrites the request body before dispatch, so a client that
+    sends an alias works. The catalogue has to say the same thing: a client
+    that discovers models from /v1/models would otherwise never see the custom
+    name it was told to use (and the panel's key model restriction is expressed
+    in client-visible names too).
+
+    An alias is only listed when its target is present in this catalogue -
+    advertising an alias whose target is not served here would hand the client
+    a name that fails on the first call. The entry copies the target's metadata
+    and swaps only ``id`` (plus ``name`` when the target had one), because the
+    client must send the alias.
+    """
+    if not aliases or not isinstance(data, list):
+        return data
+    by_id = {}
+    for item in data:
+        if isinstance(item, dict) and item.get("id"):
+            by_id.setdefault(str(item["id"]), item)
+    seen = set(by_id)
+    extra = []
+    for alias, target in aliases.items():
+        if alias in seen or not target:
+            continue
+        source = by_id.get(str(target))
+        if source is None:
+            continue
+        entry = dict(source)
+        entry["id"] = alias
+        if source.get("name"):
+            entry["name"] = alias
+        extra.append(entry)
+        seen.add(alias)
+    return data + extra
+
+
 def model_entry(mid, meta, realm=None):
     """Build a rich /v1/models entry from the desktop app catalog metadata.
     The OpenAI spec only names id/object/created/owned_by, so capability data is
@@ -21885,11 +21939,21 @@ class Handler(BaseHTTPRequestHandler):
 
         A key that lists no models stays unrestricted, so this is a no-op
         unless the operator asked for a limit.
+
+        Two names are accepted: the resolved upstream id (what `model` holds by
+        the time this runs) and the name the client actually sent. An operator
+        alias is a client-facing name, and a key restricted to that alias would
+        otherwise be rejected the moment the alias is rewritten to its target —
+        the request would be blocked by the gateway's own convenience feature.
         """
         entry = self.key_entry
         if not entry:
             return ""
         if wb_settings.key_allows_model(entry, model):
+            return ""
+        original = str(getattr(self, "_client_model", "") or "").strip()
+        if original and original != model \
+                and wb_settings.key_allows_model(entry, original):
             return ""
         return key_model_message(entry, model)
 
@@ -22320,6 +22384,10 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
         data = [model_entry(mid, meta, req_realm) for mid, meta in entries]
+        try:
+            aliases = wb_settings.model_aliases(ACCOUNTS_DIR)
+        except Exception:
+            aliases = {}
         pinned = pinned_account()
         if pinned is not None:
             # 定址路由宣告的是「这个账号实际能接的模型」：该账号禁用的模型
@@ -22329,8 +22397,18 @@ class Handler(BaseHTTPRequestHandler):
         # 目录语义；打开后，配了模型限制的 Key 不会再看到会被本地 400 拒掉
         # 的项，自动发现型客户端也就不会选到必失败的模型。
         if wb_settings.filter_models_by_key(ACCOUNTS_DIR) and self.key_entry:
+            # An alias is a client-facing name, so a key restricted to that
+            # alias must keep the alias's target in the list: the alias entry
+            # appended below is a copy of it. Dropping the target here would
+            # make the alias disappear too, and the client would be told it
+            # has no model although calling the alias works.
+            allowed_targets = {
+                target for alias, target in aliases.items()
+                if wb_settings.key_allows_model(self.key_entry, alias)
+            }
             data = [m for m in data
-                    if wb_settings.key_allows_model(self.key_entry, m.get("id"))]
+                    if wb_settings.key_allows_model(self.key_entry, m.get("id"))
+                    or m.get("id") in allowed_targets]
         # 可选：清单只宣告当前账号池里至少有一个账号能服务的模型。默认关闭
         # 保持全量目录；PRO ONLY 模型只有在池里有付费账号时才列出。
         if wb_settings.models_only_available(ACCOUNTS_DIR):
@@ -22351,6 +22429,10 @@ class Handler(BaseHTTPRequestHandler):
                     "required": "standard",
                     "at": gate_at,
                 }
+        # Operator aliases are advertised next to their target (see
+        # alias_model_entries): clients that discover the catalogue must be
+        # able to see the name they are expected to send.
+        data = alias_model_entries(data, aliases)
         payload = {"object": "list", "data": data,
                    "realm": req_realm or CURRENT_REALM}
         # 来源说明（面板展示用）：这批清单是上游 API 实时取的，还是读的
@@ -23984,6 +24066,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(400, "enable_anthropic_messages must be true or false", "invalid_request_error")
             wb_settings.set_enable_anthropic_messages(ACCOUNTS_DIR, raw)
             reply["enable_anthropic_messages"] = raw
+        if "model_aliases" in payload:
+            try:
+                cleaned = wb_settings.set_model_aliases(
+                    ACCOUNTS_DIR, payload.get("model_aliases"))
+            except ValueError as exc:
+                return self._error(400, str(exc), "invalid_request_error")
+            reply["model_aliases"] = cleaned
         if "filter_models_by_key" in payload:
             raw = payload.get("filter_models_by_key")
             if not isinstance(raw, bool):
@@ -26058,6 +26147,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(404, "no such account")
             log("account %s tasks %s"
                 % (uid[:8], "enabled" if payload.get("tasksEnabled") else "disabled"))
+            # Task-only accounts keep an exit too (their scheduled requests are
+            # just as visible to the upstream as chat calls), so flipping this
+            # flag rebalances the plan exactly like enabling the account does.
+            maybe_auto_assign_slots("account tasks toggled")
         if "weight" in payload:
             try:
                 weight = int(payload.get("weight"))
@@ -27078,6 +27171,14 @@ class Handler(BaseHTTPRequestHandler):
             aliases = wb_settings.model_aliases(ACCOUNTS_DIR)
         except Exception:
             aliases = {}
+        # The key's model restriction is expressed in the names the client
+        # sends, and an operator alias is exactly such a name. Remember it
+        # before the rewrite so `_key_model_error` can accept either spelling
+        # (see its docstring).
+        try:
+            self._client_model = str(payload.get("model") or "")
+        except Exception:
+            self._client_model = ""
         _apply_model_aliases(payload, aliases)
         _apply_background_model_alias(payload)
         # Check per-key concurrency limit (#359)

@@ -1445,6 +1445,34 @@ def model_aliases(accounts_dir):
     """Read the operator-maintained model alias table."""
     raw = load(accounts_dir).get(MODEL_ALIASES_KEY)
     return _clean_model_aliases(raw)
+
+
+# 手编一张几十行的别名表已经够用；上限只挡「把设置文件撑爆」这类误操作。
+MAX_MODEL_ALIASES = 200
+MAX_MODEL_ALIAS_LEN = 200
+
+
+def set_model_aliases(accounts_dir, raw):
+    """Persist the alias table and return the normalized mapping.
+
+    Accepts the object shape and the ``[{"from","to"}]`` spelling the reader
+    already understands, so the panel can send either. An alias that points at
+    itself is dropped by the cleaner; an alias longer than the cap is rejected
+    instead of silently truncated (a truncated name is a different model).
+    """
+    cleaned = _clean_model_aliases(raw)
+    if len(cleaned) > MAX_MODEL_ALIASES:
+        raise ValueError("model alias table holds at most %d entries"
+                         % MAX_MODEL_ALIASES)
+    for alias, target in cleaned.items():
+        if len(alias) > MAX_MODEL_ALIAS_LEN or len(target) > MAX_MODEL_ALIAS_LEN:
+            raise ValueError("model alias names must be at most %d characters"
+                             % MAX_MODEL_ALIAS_LEN)
+    with _lock:
+        data = load(accounts_dir)
+        data[MODEL_ALIASES_KEY] = cleaned
+        save(accounts_dir, data)
+    return cleaned
 # 清单写进客户端配置后会被逐条展开；200 条已远超任何出口的模型数，上限只挡
 # 手编 settings.json 把客户端配置撑爆。
 MAX_AGENT_MODELS = 200

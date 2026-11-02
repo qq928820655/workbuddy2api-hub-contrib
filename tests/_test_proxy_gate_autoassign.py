@@ -169,7 +169,7 @@ def build(work, uids, slots, per=None):
 
 
 print()
-print("[6] assign_proxy_slots: enabled accounts only, three per exit")
+print("[6] assign_proxy_slots: idle accounts get no exit, three per exit")
 
 work = make_store()
 slots = [{"id": "", "name": label, "url": url, "enabled": True}
@@ -177,14 +177,14 @@ slots = [{"id": "", "name": label, "url": url, "enabled": True}
                             ("B", "http://10.0.0.2:17902"),
                             ("C", "http://10.0.0.3:17903"))]
 pool, stored = build(work, ["u%d" % i for i in range(7)] + ["off1"], slots)
-pool.get("off1").enabled = False
-pool.get("off1").save(work)
+# Both flags off = the account does nothing at all, so its exit goes back.
+pool.set_enabled("off1", False, tasks_enabled=False)
 pool.apply_proxy_slots(stored)
 
 report = proxy.assign_proxy_slots(per_slot=3, probe=False)
 check("assignment succeeds", report["ok"] is True, report)
-check("only enabled accounts are bound", report["assigned"] == 7, report["assigned"])
-check("disabled account keeps no binding",
+check("only active accounts are bound", report["assigned"] == 7, report["assigned"])
+check("idle account keeps no binding",
       pool.get("off1").proxy_slot == "", pool.get("off1").proxy_slot)
 bound = {}
 for acc in pool.accounts:
@@ -195,6 +195,47 @@ check("three accounts per exit, tail slot gets the remainder",
 check("the runtime proxy URL follows the slot",
       pool.get("u0").proxy == "http://10.0.0.1:17901",
       pool.get("u0").proxy)
+
+print()
+print("[6b] task-only accounts (enabled=false, tasksEnabled=true) keep an exit")
+
+work = make_store()
+slots = [{"id": "", "name": label, "url": url, "enabled": True}
+         for label, url in (("A", "http://10.0.0.1:17901"),
+                            ("B", "http://10.0.0.2:17902"))]
+pool, stored = build(work, ["u%d" % i for i in range(4)] + ["idle"], slots,
+                     per=2)
+# u0/u1 task-only, u2/u3 API-only, one fully idle account
+for uid in ("u0", "u1"):
+    pool.set_enabled(uid, False, tasks_enabled=True)
+pool.set_enabled("idle", False, tasks_enabled=False)
+pool.apply_proxy_slots(stored)
+
+report = proxy.assign_proxy_slots(per_slot=2, probe=False)
+check("assignment succeeds with task-only accounts", report["ok"] is True, report)
+check("task-only accounts are bound", report["assigned"] == 4, report["assigned"])
+check("task-only account keeps its exit", pool.get("u0").proxy_slot != "",
+      pool.get("u0").proxy_slot)
+check("task-only account uses the slot URL",
+      pool.get("u0").proxy.startswith("http://10.0.0."), pool.get("u0").proxy)
+check("fully idle account is not bound", pool.get("idle").proxy_slot == "",
+      pool.get("idle").proxy_slot)
+check("task-only account appears in the slot view counts",
+      any(entry["bound"] >= 2 for entry in proxy.proxy_slots_view()),
+      proxy.proxy_slots_view())
+
+print()
+print("[6c] turning tasks on/off rebalances the plan")
+
+# Tasks off on a task-only account releases its exit; tasks on binds it again.
+pool.set_enabled("u0", False, tasks_enabled=False)
+report = proxy.maybe_auto_assign_slots("tasks off")
+check("tasks-off releases the exit", report["released"] == 1
+      and pool.get("u0").proxy_slot == "", report)
+pool.set_tasks_enabled("u0", True)
+report = proxy.maybe_auto_assign_slots("tasks on")
+check("tasks-on binds the exit again",
+      report["assigned"] == 4 and pool.get("u0").proxy_slot != "", report)
 
 print()
 print("[7] assign_proxy_slots: a probe keeps slow exits out of the rotation")

@@ -6740,6 +6740,24 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
       <section data-cat="models">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
           <div>
+            <h2 style="margin:0">模型映射（对外自定义模型名） <em id="setModelAliasesState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              每行一条 <code style="font-family:var(--mono,monospace)">对外名 = 上游原名</code>，例如
+              <code style="font-family:var(--mono,monospace)">gpt-4o-mini = deepseek-v4.1-flash</code>。
+              客户端发对外名，网关换成上游原名再转发；对外名同时出现在 <code style="font-family:var(--mono,monospace)">/v1/models</code> 清单里（指向的原名必须在清单中，否则不列出）。
+              留空表示不做映射。别名匹配不区分大小写。
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <button onclick="saveModelAliases(this)">保存</button>
+          </div>
+        </div>
+        <textarea id="setModelAliases" rows="5" placeholder="对外名 = 上游原名（每行一条）" style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font:inherit;color:var(--fg);resize:vertical;font-family:var(--mono,monospace);font-size:13px"></textarea>
+      </section>
+
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
             <h2 style="margin:0">按 API Key 过滤模型列表 <em id="setFilterModelsByKeyState"></em></h2>
             <div style="font-size:12px;color:var(--dim);margin-top:4px">
               开启后，<code style="font-family:var(--mono,monospace)">/v1/models</code> 只返回当前 Key 允许的模型，避免自动获取模型列表的客户端选到会被本地拒绝的模型。Key 未配置模型限制时仍返回全部。默认关闭。
@@ -15162,6 +15180,18 @@ async function loadSettings(showToast, opts){
     
     const autoSwitch = data.auto_switch_product === true;
       const anthropicMsg = data.enable_anthropic_messages === true;
+      const modelAliases = data.model_aliases && typeof data.model_aliases === 'object' ? data.model_aliases : {};
+      const modelAliasesInput = document.getElementById('setModelAliases');
+      if(modelAliasesInput){
+        modelAliasesInput.value = Object.keys(modelAliases).sort()
+          .map(k => k + ' = ' + modelAliases[k]).join('\n');
+      }
+      const modelAliasesState = document.getElementById('setModelAliasesState');
+      if(modelAliasesState){
+        const n = Object.keys(modelAliases).length;
+        modelAliasesState.textContent = n ? ('(' + n + ' 条)') : '(未配置)';
+        modelAliasesState.style.color = n ? 'var(--accent2)' : 'var(--dim)';
+      }
       const filterModelsByKey = data.filter_models_by_key === true;
       const reasoningEffortMap = data.reasoning_effort_map !== false;
       const reasoningEffortMapInput = document.getElementById('setReasoningEffortMap');
@@ -16053,6 +16083,40 @@ async function saveModelsOnlyAvailable(btn){
   try {
     await postJSON('/settings/save', {models_only_available: value});
     toast(value ? '已启用：/v1/models 只列出可用模型' : '已关闭：/v1/models 返回全量目录', 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function saveModelAliases(btn){
+  const el = document.getElementById('setModelAliases');
+  const table = {};
+  const bad = [];
+  const lines = String((el && el.value) || '').split(/\r?\n/);
+  for(const raw of lines){
+    const line = raw.trim();
+    if(!line || line.startsWith('#')) continue;
+    // 「对外名 = 上游原名」；也接受冒号与制表符，手打时更省事。
+    const m = line.match(/^(.+?)\s*(?:=|:|\t)\s*(.+)$/);
+    if(!m){ bad.push(line); continue; }
+    const alias = m[1].trim();
+    const target = m[2].trim();
+    if(!alias || !target){ bad.push(line); continue; }
+    if(alias.toLowerCase() === target.toLowerCase()){ bad.push(line); continue; }
+    table[alias] = target;
+  }
+  if(bad.length){
+    toast('这几行格式不对（应为「对外名 = 上游原名」）：' + bad.slice(0,3).join(' / '), 'bad');
+    return;
+  }
+  if(btn) btn.disabled = true;
+  try {
+    const res = await postJSON('/settings/save', {model_aliases: table});
+    const n = Object.keys((res && res.model_aliases) || table).length;
+    toast(n ? ('已保存 ' + n + ' 条模型映射') : '已清空模型映射', 'ok');
     loadSettings();
   } catch(e) {
     toast('保存失败: ' + e.message, 'bad');
