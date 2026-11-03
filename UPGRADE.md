@@ -91,7 +91,7 @@ v1.7.9 的 `08c274d` 收编了旧 P0 归位补丁）。
 | 10 | 请求到达即记日志 `chat head`（`wb_proxy.py`） | 客户端上传慢时那段窗口日志全空白，分不清「请求没到本进程」与「网关慢」 |
 | 11 | 代理出口握手延迟门禁 + 每 N 个账号自动分配（`wb_proxy.py` + `wb_settings.py` + `dashboard.html`） | 跨洋整请求口径把可用出口全判死或全放行；账号多了要一个个手工绑出口 |
 | 12 | 任务型账号（`enabled=false, tasksEnabled=true`）也保留代理出口（`wb_proxy.py`） | 关掉转发只留任务的号被释放出口 → 签到/成长/旅行/打卡全从本机 IP 出去，多号同 IP 关联 |
-| 13 | 面板「模型映射」（对外名 → 上游原名）+ `/v1/models` 宣告别名 + key 限制接受两种写法 + 回复回显别名（`wb_proxy.py` + `wb_settings.py` + `dashboard.html`） | 别名只能手改 `accounts/settings.json`；客户端清单里看不到别名、回显 model 与请求不符 |
+| 13 | 面板「对外名称」列（对外名 → 上游原名）+ `/v1/models` 宣告别名 + key 限制接受两种写法 + 回复回显别名（`wb_proxy.py` + `wb_settings.py` + `dashboard.html`） | 别名只能手改 `accounts/settings.json`；客户端清单里看不到别名、回显 model 与请求不符 |
 
 ### ~~补丁 5：账号级并发上限~~（**已被上游收编** v1.8.0 / PR #612，勿重打）
 
@@ -711,7 +711,7 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
   `python3 tests/_test_proxy_gate_autoassign.py`（+6 例：task-only 保留 / 全停释放 /
   切任务重平衡）。
 
-### 补丁 13（2026-11-02）：面板模型映射（对外名 → 上游原名）
+### 补丁 13（2026-11-02）：面板「对外名称」列（对外名 → 上游原名）
 
 - **为什么要客户端可见**：别名是**客户端要发的名字**，不是内部别名。所以三件事必须
   一起做，否则会出现「能调用但客户端清单里没有」「回显 model 与请求不符」：
@@ -722,14 +722,31 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
 - **存储**（`wb_settings.py`）：`set_model_aliases()` / `model_aliases()`，
   `MAX_MODEL_ALIASES=200`（超长报错而不是静默截断）；`settings/save` 接受
   `model_aliases`，`runtime_settings_view` 暴露它。
-- **面板**（`dashboard.html`）：设置页「模型映射」卡，textarea 一行一条
-  `对外名 = 上游原名`，`saveModelAliases()` 提交。
+- **面板**（`dashboard.html`，2026-11-03 改版）：入口是「网关模型清单」表末列
+  **「对外名称」**——每行一个**纯 `<input>`**（无 datalist：对外名称本来就可以是
+  清单里没有的名字，塞候选只会诱导用户误选成「另一个真实模型」），`change`
+  （失焦/回车）时 `saveModelMapFromCell()` 整表覆盖写
+  `/settings/save {model_aliases}`。**设置页那张 textarea 卡已删除**
+  （`saveModelAliases()` 一并移除），避免两个入口写同一份配置。表头 9 列，
+  `SORT_COL_KINDS.modelsTable` 末列 `null`（输入框不排序），空态 `colspan="9"`。
+- **列语义（2026-11-03 反转，务必按这个理解）**：列里填的是**对外名称**
+  （客户端发的名字），网关收到后按**本行模型 ID** 实际调用。存表方向因此是
+  `对外名称 → 模型 ID`（`model_aliases[name] = id`）。行内输入框显示的是
+  **指向本行模型的那些对外名称**——`externalNamesFor(id)` 反查别名表；一个模型
+  有多个对外名称时第一个填进框、其余进 `title`（「也对外提供：…」）。保存时
+  `saveModelMapFromCell()` 先删旧名再写新名，名字等于模型 ID 时直接不写
+  （清洗器也会丢）。
 - **注意**：`client_facing_model` 必须是**模块级函数**，不能写成 Handler 方法——
   `tests/_test_sse_termination.py` 用 stub handler 驱动 `_chat_stream_response`，
   方法版会 AttributeError。
 - 判定：`grep -c "def alias_model_entries" wb_proxy.py`=1、
   `grep -c "def client_facing_model" wb_proxy.py`=1、
   `grep -c "def set_model_aliases" wb_settings.py`=1、
-  `grep -c "saveModelAliases" dashboard.html`≥2、
-  `python3 tests/_test_model_alias_and_realm.py`（+9 例）。
+  `grep -c "function saveModelMapFromCell" dashboard.html`=1、
+  `grep -c "function externalNamesFor" dashboard.html`=1、
+  `grep -c "saveModelAliases" dashboard.html`=0（旧入口已删）、
+  `grep -c "modelMapTargets" dashboard.html`=0（datalist 已删）、
+  `grep -c 'data-label="对外名称"' dashboard.html`=3（2 条 CSS + 1 个单元格）、
+  `python3 tests/_test_model_alias_and_realm.py`（26 例）、
+  `node tests/_test_models_catalog_source.js`（含对外名称列 7 条断言）。
 
