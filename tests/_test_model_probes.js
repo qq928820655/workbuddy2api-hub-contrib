@@ -54,6 +54,15 @@ const text = html => String(html || '').replace(/<[^>]*>/g, '').trim();
 // emits is what puts an assertion on a row; `out.includes(...)` only says the
 // string exists. Attributes on <tr>/<td> and extra cells are ignored on
 // purpose, so harmless markup churn is not a failure here.
+/**
+ * 行键：模型 ID。优先取 ID 单元格里 `<b>` 的内容——上游 v1.10.5 起国际版
+ * `deepseek-v4.1-flash` 那一行会在 id 下面再放一个出站切换按钮，纯文本就不再
+ * 是 id 本身了。
+ */
+function idOf(cellHtml){
+  const bold = /<b[^>]*>([\s\S]*?)<\/b>/.exec(String(cellHtml || ''));
+  return bold ? text(bold[1]) : text(cellHtml);
+}
 function rowsById(html){
   const rows = {};
   for(const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)){
@@ -62,7 +71,7 @@ function rowsById(html){
       const label = (cell[1].match(/data-label="([^"]*)"/) || [])[1];
       if(label) cells[label] = cell[2];
     }
-    const id = text(cells['模型 ID']);
+    const id = idOf(cells['模型 ID']);
     if(id) rows[id] = cells;
   }
   return rows;

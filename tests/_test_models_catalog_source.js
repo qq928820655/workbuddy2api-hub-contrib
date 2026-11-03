@@ -8,9 +8,10 @@
 本身也要带上名称、默认采样参数与思考细节（默认档位、能否关闭思考），
 而不是只有 id 和倍率。
 
-另外钉住一个给兄弟套件用的契约：模型 ID 单元格里只放 id 本身，别的列
-的内容不许混进来——_test_model_probes.js 用该单元格的纯文本当行键，
-一旦把它变成 "id 名称" 拼接，那边按行断言会整体错位。
+另外钉住一个给兄弟套件用的契约：行键是模型 ID 单元格里 `<b>` 的内容。
+上游 v1.10.5 起该单元格在国际版 `deepseek-v4.1-flash` 那行还会带一个出站
+切换按钮，所以**不能把整个单元格的纯文本当 id**（会变成
+「id原生免费强制 -sg」）——_test_model_probes.js 用的是同一个读取口径。
 
 Run with Node.
 */
@@ -112,6 +113,18 @@ function render(models){
 // The rendered table as one object per row: data-label -> cell HTML, keyed by
 // the model ID text (same reader the probe suite uses - see the header note).
 const text = s => String(s || '').replace(/<[^>]*>/g, '').trim();
+/**
+ * 行键：模型 ID。
+ *
+ * 优先取 ID 单元格里 `<b>` 的内容（渲染器把 id 包在这个标签里）；取不到再退回
+ * 整个单元格的纯文本。**不能只用纯文本**：上游 v1.10.5 起国际版
+ * `deepseek-v4.1-flash` 那一行会在 id 下面再放一个出站切换按钮（原生免费 /
+ * 强制 -sg），纯文本就成了「deepseek-v4.1-flash原生免费强制 -sg」。
+ */
+function idOf(cellHtml){
+  const bold = /<b[^>]*>([\s\S]*?)<\/b>/.exec(String(cellHtml || ''));
+  return bold ? text(bold[1]) : text(cellHtml);
+}
 function rowsById(html){
   const rows = {};
   for(const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)){
@@ -120,7 +133,7 @@ function rowsById(html){
       const label = (cell[1].match(/data-label="([^"]*)"/) || [])[1];
       if(label) cells[label] = cell[2];
     }
-    const id = text(cells['模型 ID']);
+    const id = idOf(cells['模型 ID']);
     if(id) rows[id] = cells;
   }
   return rows;
