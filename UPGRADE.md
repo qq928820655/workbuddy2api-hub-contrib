@@ -21,16 +21,32 @@ git remote -v
 
 ## 一、当前基线
 
-- 基于上游 **v1.10.1**（commit `28527f4`），2026-11-02 升级（v1.10.0 → v1.10.1）
-- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11/12/13 各自的 feat/fix + docs），标签 `ops-20261102`
+- 基于上游 **v1.10.7**（commit `d177043`），2026-11-03 升级（v1.10.1 → v1.10.7，49 个上游提交）
+- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11/12/13 各自的 feat/fix + docs），标签 `ops-20261103`
 - 升级时**重放这一串提交**即可（`git log upstream/main..main`）
 
-> v1.10.0 → v1.10.1 的上游要点：**没有收编任何本地补丁**。冲突仅 `README.md` 一处
-> （套件计数行），解为 **249 个套件：186 Python + 63 JS**（上游 244=181+63，本地
-> 补丁自带 5 个 Python 套件）。测试基线 **245 过 / 4 挂**：3 个上游既有失败
-> （`_test_breaker_fairness` / `_test_egress_backoff` / `_test_pool_backoff`）+
-> `_test_rate_limit_reset_at`（v1.10.1 自带夹具时间戳 2026-11-02 03:04:05 UTC+8 已过期，
-> 纯 upstream worktree 同样挂，非回归）。
+> v1.10.1 → v1.10.7 的上游要点：**仍然没有收编任何本地补丁**（补丁 7 透明等待 / 9 affinity 落盘 /
+> 10 chat head / 11 代理门禁+自动分配 / 12 task-only 保留出口 / 13 对外名称，在 `upstream/main`
+> 里 `grep` 全为 0，继续保留）。上游新能力：**国际版目录补回 `deepseek-v4.1-flash`**（#741/#742，
+> 附带 `deepseek_flash_force_sg` 出站开关）、生图与异步生视频媒体能力（#728）、
+> 设置页二级分类胶囊导航、CodeArts 签到活动识别与自动签到（#747）、
+> 国内版 deepseek-v4.1-flash 计费与出站路由修复（#748）、Codex 首段渠道指纹与 400 账号归因（#744）、
+> 成长中心全能任务扩充、账本原子追加（并发下不再丢行）、`_test_rate_limit_reset_at` 夹具改相对时钟（#737）。
+>
+> **rebase 冲突 5 处**：`wb_proxy.py` 3 处（补丁 11 的 `proxy_auto_assign_*` 与上游新增
+> `media*` 字段同区、补丁 12 的 `_slot_active`、补丁 13 的 `alias_model_entries` 与上游
+> `model_entry(..., realm)` 新签名同区）、`README.md` 2 处（套件计数行）。两处 `wb_proxy`
+> 冲突都是**两侧合并**（上游字段 + 我们的字段都要保留），`README` 计数取上游侧、最后按 tree 重算。
+>
+> **测试基线 260 过 / 3 挂**：全部是上游既有失败（`_test_breaker_fairness` /
+> `_test_egress_backoff` / `_test_pool_backoff`，纯 upstream worktree 同样挂）。
+> `_test_rate_limit_reset_at` 已被上游 #737 修好（相对时钟），不再是挂项。
+>
+> **本轮唯一的测试改动**：上游 v1.10.5 在**国际版 `deepseek-v4.1-flash` 那一行的 ID 单元格**
+> 里加了「原生免费 / 强制 -sg」出站切换按钮，ID 单元格的纯文本因此变成
+> `deepseek-v4.1-flash原生免费强制 -sg`。`_test_models_catalog_source.js` 与
+> `_test_model_probes.js` 都用「ID 单元格纯文本」当行键，会整体错位。改为优先取 `<b>` 里的 id
+> （`idOf()`），纯上游 worktree 不受影响。
 
 > v1.8.0 → v1.9.2 的上游要点：**没有收编我们剩余的本地补丁**（补丁 7 透明等待 / 9 affinity 落盘 /
 > 10 chat head / 11 代理门禁+自动分配在 `upstream/main` 里 `grep` 均为 0，继续保留）。
@@ -527,7 +543,10 @@ grep -c "def _slot_active" wb_proxy.py                       # 补丁 12，应 1
 grep -c "def alias_model_entries" wb_proxy.py                # 补丁 13，应 1
 grep -c "def client_facing_model" wb_proxy.py                # 补丁 13，应 1
 grep -c "def set_model_aliases" wb_settings.py               # 补丁 13，应 1
-grep -c "saveModelAliases" dashboard.html                    # 补丁 13，应 >= 2
+grep -c "function saveModelMapFromCell" dashboard.html       # 补丁 13，应 1
+grep -c "function externalNamesFor" dashboard.html           # 补丁 13，应 1
+grep -c "saveModelAliases" dashboard.html                    # 旧设置页入口已删，应 0
+grep -c "modelMapTargets" dashboard.html                     # datalist 已删，应 0
 
 # 4) 依赖：本仓库纯标准库、无 requirements.txt；若上游新增依赖则 pip 装（本机走清华源）
 
