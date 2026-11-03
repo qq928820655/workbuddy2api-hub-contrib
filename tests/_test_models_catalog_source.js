@@ -171,4 +171,27 @@ r = rows['m3'];
 check('empty sampling renders a dash', text(r['默认采样参数']) === '—', r['默认采样参数']);
 check('empty thinking renders a dash', text(r['思考档位']) === '—', r['思考档位']);
 
+// 8. 「对外名称」列：每行一个自由输入框（不是下拉、也不给候选），
+//    语义是「这一行的模型对外叫什么」——存表方向是 对外名称 → 模型 ID。
+window.MODEL_ALIASES = {'glm-5.2': 'deepseek-v4.1-flash'};
+rows = rowsById(render([{ id: 'hy3' }, { id: 'deepseek-v4.1-flash' }]));
+check('every row gets an external-name cell',
+      !!rows['hy3']['对外名称'] && !!rows['deepseek-v4.1-flash']['对外名称'],
+      JSON.stringify(Object.keys(rows)));
+check('the external-name control is a free-text input',
+      /<input[^>]*class="model-map-input"/.test(rows['hy3']['对外名称'])
+      && !/<select/.test(rows['hy3']['对外名称']), rows['hy3']['对外名称']);
+check('a model with no external name renders an empty input',
+      /value=""/.test(rows['hy3']['对外名称']), rows['hy3']['对外名称']);
+check('an existing external name is pre-filled on the model it points at',
+      /value="glm-5\.2"/.test(rows['deepseek-v4.1-flash']['对外名称']),
+      rows['deepseek-v4.1-flash']['对外名称']);
+check('the input carries the model id it renames',
+      /data-model-id="deepseek-v4\.1-flash"/.test(rows['deepseek-v4.1-flash']['对外名称']),
+      rows['deepseek-v4.1-flash']['对外名称']);
+check('the external name input offers no candidate list',
+      !/\blist=/.test(rows['hy3']['对外名称']), rows['hy3']['对外名称']);
+check('the external name is not restricted by pattern/readonly',
+      !/pattern=|readonly/.test(rows['hy3']['对外名称']), rows['hy3']['对外名称']);
+
 console.log('models catalog source-line assertions passed (' + checks + ' checks)');

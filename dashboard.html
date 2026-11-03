@@ -185,6 +185,10 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 #modelsTable td[data-label="模型类型"]{white-space:normal;line-height:1.4;word-break:break-word}
 /* 采样参数：放不下时 chips 折行显示完整，不截断 */
 #modelsTable td[data-label="默认采样参数"]{white-space:normal}
+/* 「对外名称」列是行内输入框：单元格左右内边距收紧、输入框按 border-box 占满，
+   否则 100% 宽 + min-width 会把输入框顶出单元格，被 td 的 ellipsis 裁掉一截。 */
+#modelsTable td.model-map-cell{padding-left:8px;padding-right:8px}
+#modelsTable td.model-map-cell input{width:100%;min-width:0;box-sizing:border-box}
 /* 模型 ID 前的「一键配置」勾选框。勾选只决定一键配置写进客户端的模型清单，
    不改网关路由；label 把勾选框和 ID 包在一起，点 ID 也能勾。排序只认表头
    （见 sortHeaderAt），点勾选框不会触发排序。单元格用类名定位，别用
@@ -3049,6 +3053,8 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '槽位还没有填写代理地址': 'The slot has no proxy address yet',
     '模型': 'Model',
     '模型 ID': 'Model ID',
+    '对外名称': 'External name',
+    '留空 = 用模型 ID': 'Empty = use the model ID',
     '模型价格估算': 'Model price estimate',
     '模型名称': 'Model name',
     '模型性能指标与用量一览': 'Model performance and usage',
@@ -5709,14 +5715,15 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
       <table id="modelsTable" class="data-cards">
         <thead>
           <tr>
-            <th style="text-align:left;width:19%">模型 ID</th>
-            <th style="text-align:left;width:11%">名称</th>
-            <th style="text-align:center;width:12%">消费倍率 / 优惠</th>
-            <th style="text-align:center;width:14%">模型能力</th>
-            <th style="text-align:center;width:9%">上下文窗口</th>
-            <th style="text-align:center;width:9%">最大输出</th>
-            <th style="text-align:left;width:15%">思考档位</th>
-            <th style="text-align:left;width:11%;white-space:nowrap">默认采样参数</th>
+            <th style="text-align:left;width:18%">模型 ID</th>
+            <th style="text-align:left;width:10%">名称</th>
+            <th style="text-align:center;width:11%">消费倍率 / 优惠</th>
+            <th style="text-align:center;width:13%">模型能力</th>
+            <th style="text-align:center;width:8%">上下文窗口</th>
+            <th style="text-align:center;width:8%">最大输出</th>
+            <th style="text-align:left;width:13%">思考档位</th>
+            <th style="text-align:left;width:9%;white-space:nowrap">默认采样参数</th>
+            <th style="text-align:left;width:10%;white-space:nowrap" title="客户端用这个名字调用时，网关按本行的模型 ID 转发。留空 = 对外名称就是模型 ID 本身。填的名字不必出现在本清单里。">对外名称</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -6738,24 +6745,6 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
       </section>
 
       <section data-cat="models">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-          <div>
-            <h2 style="margin:0">模型映射（对外自定义模型名） <em id="setModelAliasesState"></em></h2>
-            <div style="font-size:12px;color:var(--dim);margin-top:4px">
-              每行一条 <code style="font-family:var(--mono,monospace)">对外名 = 上游原名</code>，例如
-              <code style="font-family:var(--mono,monospace)">gpt-4o-mini = deepseek-v4.1-flash</code>。
-              客户端发对外名，网关换成上游原名再转发；对外名同时出现在 <code style="font-family:var(--mono,monospace)">/v1/models</code> 清单里（指向的原名必须在清单中，否则不列出）。
-              留空表示不做映射。别名匹配不区分大小写。
-            </div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-            <button onclick="saveModelAliases(this)">保存</button>
-          </div>
-        </div>
-        <textarea id="setModelAliases" rows="5" placeholder="对外名 = 上游原名（每行一条）" style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font:inherit;color:var(--fg);resize:vertical;font-family:var(--mono,monospace);font-size:13px"></textarea>
-      </section>
-
-      <section>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
           <div>
             <h2 style="margin:0">按 API Key 过滤模型列表 <em id="setFilterModelsByKeyState"></em></h2>
@@ -8174,6 +8163,9 @@ window.VIEW_REALM = "intl";
 window.REALM_FILTER = "all";
 window.MODELS_DATA = [];
 window.ACCOUNTS = [];
+/* 对外名称表（模型 ID → 对外名称），来自 /settings 的 model_aliases。
+   面板的「对外名称」列直接编辑它：写回走 /settings/save。 */
+window.MODEL_ALIASES = {};
 
 function updateUI(){
   const isIntlView = (window.VIEW_REALM === "intl");
@@ -9052,6 +9044,15 @@ document.addEventListener('change', function(ev){
   if(AGENT_MODELS.length) renderAgentConnForm();
 });
 
+// 「对外名称」列同样走事件委托：表格每次重画都换掉整批 input。
+// 用 change（失焦 / 回车）而不是 input —— 每次按键都发一次整表覆盖的写请求，
+// 会把服务端那份映射反复覆盖成半截名字。
+document.addEventListener('change', function(ev){
+  const box = ev.target;
+  if(!box || !box.classList || !box.classList.contains('model-map-input')) return;
+  saveModelMapFromCell(box);
+});
+
 // 表头三个批量动作：全选 / 全不选 / 反选。
 // 做成按钮而不是「反选」复选框：反选是动作、不是状态。复选框形态要么得额外记一份
 // 「反选之前的集合」（否则两次开关回不到原状），要么让「界面显示的勾选」和
@@ -9141,6 +9142,71 @@ function renderModelsSourceLine(meta){
     + ' · 建议点击「刷新模型清单」获取最新数据</span>';
 }
 
+/* 指向某个模型 ID 的全部对外名称（别名表是「对外名称 → 上游模型名」，键已被
+   wb_settings._clean_model_aliases 归一成小写，所以这里按小写比较目标）。 */
+function externalNamesFor(id){
+  const target = String(id || '').toLowerCase();
+  const out = [];
+  const table = window.MODEL_ALIASES || {};
+  for(const name of Object.keys(table)){
+    if(String(table[name] || '').toLowerCase() === target) out.push(name);
+  }
+  out.sort();
+  return out;
+}
+
+/* 「对外名称」列：这一行的模型对外叫什么——客户端用这个名字调用，网关收到后
+   按本行的模型 ID 实际调用。存进 model_aliases 的方向是 `对外名称 → 模型 ID`。
+   纯输入框、不给候选：对外名称本来就可以是清单里没有的名字（claude-* 这类），
+   把本清单塞进 datalist 只会诱导用户误选成「另一个真实模型」。
+   提交时机是 change（失焦/回车），不是每次按键：每敲一个字就整表写一次会把服务端
+   那份表反复覆盖成半截名字。 */
+function modelMapCell(m){
+  const id = String((m && m.id) || '');
+  const names = externalNamesFor(id);
+  const cur = names[0] || '';
+  const extra = names.slice(1);
+  const title = '客户端用这个名字调用时，网关按本行的模型 ID 实际调用；留空 = 对外名称就是模型 ID 本身。可以填清单里没有的名字。'
+    + (extra.length ? ' 也对外提供：' + extra.join('、') : '');
+  return '<td style="text-align:left" class="model-map-cell" data-label="对外名称">'
+    + '<input class="model-map-input" data-model-id="' + esc(id) + '"'
+    + ' data-external="' + esc(cur) + '"'
+    + ' value="' + esc(cur) + '" placeholder="留空 = 用模型 ID"'
+    + ' aria-label="「' + esc(id) + '」的对外名称"'
+    + ' title="' + esc(title) + '"'
+    + ' style="background:var(--panel2);border:1px solid var(--line);'
+    + 'border-radius:6px;padding:3px 7px;font:inherit;font-size:12px;color:var(--fg)">'
+    + '</td>';
+}
+
+/* 保存一条行内「对外名称」。整表覆盖（接口没有单条写入），失败时把输入框恢复成旧值。 */
+async function saveModelMapFromCell(input){
+  if(!input) return;
+  const id = String(input.getAttribute('data-model-id') || '');
+  if(!id) return;
+  const prevName = String(input.getAttribute('data-external') || '');
+  const name = String(input.value || '').trim();
+  if(name === prevName) return;
+  const table = Object.assign({}, window.MODEL_ALIASES || {});
+  if(prevName) delete table[prevName.toLowerCase()];
+  // 对外名称与模型 ID 相同 = 没有别名，清洗器也会丢掉这条，这里直接不写。
+  if(name && name.toLowerCase() !== id.toLowerCase()) table[name.toLowerCase()] = id;
+  input.disabled = true;
+  try{
+    const res = await postJSON('/settings/save', {model_aliases: table});
+    const cleaned = (res && res.model_aliases) || table;
+    window.MODEL_ALIASES = cleaned;
+    input.setAttribute('data-external', name);
+    input.value = name;
+    toast(name ? (id + ' 的对外名称为 ' + name) : (id + ' 的对外名称已清空'), 'ok');
+  }catch(e){
+    input.value = prevName;
+    toast('保存对外名称失败: ' + e.message, 'bad');
+  }finally{
+    input.disabled = false;
+  }
+}
+
 function renderAvailableModels(){
   const tb = document.querySelector('#modelsTable tbody');
   if(!tb) return;
@@ -9155,7 +9221,7 @@ function renderAvailableModels(){
   const count = document.getElementById('modelCatalogFilterCount');
   if(count) count.textContent = query ? ('显示 ' + visibleModels.length + ' / ' + MODELS_DATA.length + ' 个模型') : '';
   if(!MODELS_DATA.length){
-    tb.innerHTML = '<tr><td colspan="8" class="empty">暂无可用模型</td></tr>';
+    tb.innerHTML = '<tr><td colspan="9" class="empty">暂无可用模型</td></tr>';
     return;
   }
   if(!visibleModels.length){
@@ -9317,6 +9383,7 @@ function renderAvailableModels(){
       + '<td style="text-align:center" data-label="最大输出">' + maxOut + '</td>'
       + '<td style="text-align:left" data-label="思考档位">' + effort + '</td>'
       + sampleCell
+      + modelMapCell(m)
       + '</tr>';
   }).join('');
   applyTableSort('modelsTable');
@@ -9858,7 +9925,8 @@ const SORT_DENY_TABLES = new Set(['recent', 'desktopScanBody', 'creditsModalCont
    下标 = 表头列序号。'num' 取单元格里的数字，'text' 按文本比，null = 该列不排
    （下拉框、按钮、拼给人看的标签串）。 */
 const SORT_COL_KINDS = {
-  modelsTable:      ['text', 'text', 'num', 'text', 'num', 'num', 'text', 'text'],
+  // 末列「对外名称」是输入框（控件列不参与排序），登记成 null。
+  modelsTable:      ['text', 'text', 'num', 'text', 'num', 'num', 'text', 'text', null],
   growthTable:      ['text', 'text', 'num', 'num', 'text'],
   // 时间列是 ISO 串，字典序就是时间序，不必另给排序值。
   creditHistoryTable: ['text', 'text', 'text', 'num', 'num'],
@@ -15181,16 +15249,13 @@ async function loadSettings(showToast, opts){
     const autoSwitch = data.auto_switch_product === true;
       const anthropicMsg = data.enable_anthropic_messages === true;
       const modelAliases = data.model_aliases && typeof data.model_aliases === 'object' ? data.model_aliases : {};
-      const modelAliasesInput = document.getElementById('setModelAliases');
-      if(modelAliasesInput){
-        modelAliasesInput.value = Object.keys(modelAliases).sort()
-          .map(k => k + ' = ' + modelAliases[k]).join('\n');
-      }
-      const modelAliasesState = document.getElementById('setModelAliasesState');
-      if(modelAliasesState){
-        const n = Object.keys(modelAliases).length;
-        modelAliasesState.textContent = n ? ('(' + n + ' 条)') : '(未配置)';
-        modelAliasesState.style.color = n ? 'var(--accent2)' : 'var(--dim)';
+      window.MODEL_ALIASES = modelAliases;
+      // 「对外名称」列是这份表的唯一入口（模型清单里行内编辑）。表重画时从
+      // window.MODEL_ALIASES 取值，所以这里改完要重画一次，否则刚保存的名称要
+      // 等下一次 loadModels 才显示出来。清单还没到时不必画（首屏那条 loadModels
+      // 会负责），否则会先闪一下「暂无可用模型」。
+      if(typeof renderAvailableModels === 'function' && window.MODELS_DATA && window.MODELS_DATA.length){
+        renderAvailableModels();
       }
       const filterModelsByKey = data.filter_models_by_key === true;
       const reasoningEffortMap = data.reasoning_effort_map !== false;
@@ -16083,40 +16148,6 @@ async function saveModelsOnlyAvailable(btn){
   try {
     await postJSON('/settings/save', {models_only_available: value});
     toast(value ? '已启用：/v1/models 只列出可用模型' : '已关闭：/v1/models 返回全量目录', 'ok');
-    loadSettings();
-  } catch(e) {
-    toast('保存失败: ' + e.message, 'bad');
-  } finally {
-    if(btn) btn.disabled = false;
-  }
-}
-
-async function saveModelAliases(btn){
-  const el = document.getElementById('setModelAliases');
-  const table = {};
-  const bad = [];
-  const lines = String((el && el.value) || '').split(/\r?\n/);
-  for(const raw of lines){
-    const line = raw.trim();
-    if(!line || line.startsWith('#')) continue;
-    // 「对外名 = 上游原名」；也接受冒号与制表符，手打时更省事。
-    const m = line.match(/^(.+?)\s*(?:=|:|\t)\s*(.+)$/);
-    if(!m){ bad.push(line); continue; }
-    const alias = m[1].trim();
-    const target = m[2].trim();
-    if(!alias || !target){ bad.push(line); continue; }
-    if(alias.toLowerCase() === target.toLowerCase()){ bad.push(line); continue; }
-    table[alias] = target;
-  }
-  if(bad.length){
-    toast('这几行格式不对（应为「对外名 = 上游原名」）：' + bad.slice(0,3).join(' / '), 'bad');
-    return;
-  }
-  if(btn) btn.disabled = true;
-  try {
-    const res = await postJSON('/settings/save', {model_aliases: table});
-    const n = Object.keys((res && res.model_aliases) || table).length;
-    toast(n ? ('已保存 ' + n + ' 条模型映射') : '已清空模型映射', 'ok');
     loadSettings();
   } catch(e) {
     toast('保存失败: ' + e.message, 'bad');
