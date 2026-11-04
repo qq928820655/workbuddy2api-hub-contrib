@@ -21,10 +21,29 @@ git remote -v
 
 ## 一、当前基线
 
-- 基于上游 **v1.10.7**（commit `d177043`），2026-11-03 升级（v1.10.1 → v1.10.7，49 个上游提交）
-- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11/12/13 各自的 feat/fix + docs），标签 `ops-20261103`
+- 基于上游 **v1.10.8**（commit `4de31bf`），2026-11-04 升级（v1.10.7 → v1.10.8，22 个上游提交）
+- 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11/12/13 + 补丁 14 各自的 feat/fix + docs），标签 `ops-20261104`
 - 升级时**重放这一串提交**即可（`git log upstream/main..main`）
 
+> v1.10.7 → v1.10.8 的上游要点：**仍然没有收编任何本地补丁**（补丁 7 透明等待 / 9 affinity 落盘 /
+> 10 chat head / 11 代理门禁+自动分配 / 12 task-only 保留出口 / 13 对外名称，在 `upstream/main`
+> 里 `grep` 全为 0，继续保留；**补丁 14 的 400 名额归还在上游同样是缺的**，见下方）。
+> 上游新能力：CodeArts 出口工具定义归一化（修 `Tool function cannot empty`，#750/#752）、
+> CodeArts `save_config` 读-改-写加锁（#751）、CodeArts 账号 UID 内联 handler 白名单（#757）、
+> 每日用量折叠按 inode + 尾签名校验 offset（修 `logrotate copytruncate` 后日限算错，#755）、
+> **出站身份诊断脚本 `scripts/diagnose_identity.py` + `docs/TROUBLESHOOTING-11-128.md`**（#756）、
+> 嵌套 namespace 丢父路径与 `responses_to_chat()` 的 `tool_choice` 回写修复（#736）、
+> 账号删除时清任务快照（#745）、模型列表长文本折行（#749）。
+> **上游删除了 `deepseek_flash_force_sg` 出站开关**（函数改恒 False、面板卡片与模型列表胶囊全删，
+> 国际版 `deepseek-v4.1-flash` 统一按真实 0.11x 计费）——本机 `settings.json` 里该键本来就是 `None`，
+> 无数据迁移问题；rebase 时该行与我们的 `transparent_retry_wait` 同区，**取我们这行、丢掉 force_sg**。
+>
+> **rebase 冲突 6 处**：`wb_proxy.py` 1 处（`runtime_settings_view` 里 force_sg 行与我们补丁 7 的
+> `transparent_retry_wait` 同区）、`README.md` 5 处（历史提交的 changelog 段落上下文已过期，
+> 与上游 v1.10.8 把 README 大改（656 行 → 241 行，正文搬进 `docs/CHANGELOG.md`）叠加）。
+> **README 冲突一律取上游侧**（`git checkout --ours README.md`），本地条目在 rebase 完成后
+> 统一补进 `docs/CHANGELOG.md` 的「未发布」段 + 重算套件计数行。
+>
 > v1.10.1 → v1.10.7 的上游要点：**仍然没有收编任何本地补丁**（补丁 7 透明等待 / 9 affinity 落盘 /
 > 10 chat head / 11 代理门禁+自动分配 / 12 task-only 保留出口 / 13 对外名称，在 `upstream/main`
 > 里 `grep` 全为 0，继续保留）。上游新能力：**国际版目录补回 `deepseek-v4.1-flash`**（#741/#742，
@@ -108,6 +127,7 @@ v1.7.9 的 `08c274d` 收编了旧 P0 归位补丁）。
 | 11 | 代理出口握手延迟门禁 + 每 N 个账号自动分配（`wb_proxy.py` + `wb_settings.py` + `dashboard.html`） | 跨洋整请求口径把可用出口全判死或全放行；账号多了要一个个手工绑出口 |
 | 12 | 任务型账号（`enabled=false, tasksEnabled=true`）也保留代理出口（`wb_proxy.py`） | 关掉转发只留任务的号被释放出口 → 签到/成长/旅行/打卡全从本机 IP 出去，多号同 IP 关联 |
 | 13 | 面板「对外名称」列（对外名 → 上游原名）+ `/v1/models` 宣告别名 + key 限制接受两种写法 + 回复回显别名（`wb_proxy.py` + `wb_settings.py` + `dashboard.html`） | 别名只能手改 `accounts/settings.json`；客户端清单里看不到别名、回显 model 与请求不符 |
+| 14 | 400 / 未处理 4xx 透传前归还账号并发名额（`wb_proxy.py`） | 一次 400（如 11-128）就让账号在 `account_max_concurrent` 里永久 +1；上限为 1 时该号从此「已在服务 1 个请求」，面板健康、测试也绿，但派发永远轮不到，只有重启进程才恢复 |
 
 ### ~~补丁 5：账号级并发上限~~（**已被上游收编** v1.8.0 / PR #612，勿重打）
 
@@ -540,6 +560,8 @@ grep -c "narrow ? 0 : 14" dashboard.html                    # 补丁 3a，应 2 
 grep -c "tb-group tb-checkin" dashboard.html                # 3i，上游 v1.7.29 起自带，应 1
 grep -n "WB_ENABLE_ANTHROPIC_MESSAGES" start.sh             # 补丁 4
 grep -c "def _slot_active" wb_proxy.py                       # 补丁 12，应 1
+grep -c "hand the concurrency seat back first" wb_proxy.py  # 补丁 14，应 1
+grep -c "Same leak as the 400 branch above" wb_proxy.py     # 补丁 14，应 1
 grep -c "def alias_model_entries" wb_proxy.py                # 补丁 13，应 1
 grep -c "def client_facing_model" wb_proxy.py                # 补丁 13，应 1
 grep -c "def set_model_aliases" wb_settings.py               # 补丁 13，应 1
@@ -769,3 +791,22 @@ WB_PANEL_PASSWORD='<你的面板密码>' ./start.sh
   `python3 tests/_test_model_alias_and_realm.py`（26 例）、
   `node tests/_test_models_catalog_source.js`（含对外名称列 7 条断言）。
 
+### 补丁 14（2026-11-03）：400 / 未处理 4xx 透传前归还账号并发名额
+
+- **症状**：某个账号（线上是 `b98b079c`）突然「消失」——`/health` 里仍 `ready`、面板测试也绿，
+  但每个请求都跳过它；池子只剩一个号时直接报 503，报错只列「其余号已停用」，极具误导。
+  重启进程立刻恢复，过一阵又复发。
+- **根因**：`open_upstream()` 的重试循环里，`if exc.code == 400: raise`（原 wb_proxy.py:16449）
+  与末尾未单独处理的 4xx 兜底 `raise`（原 16495）都**直接跳出循环**，跳过了循环之后的统一
+  `account_slot_release(slot_held)`。账号在 `_ACCOUNT_INFLIGHT` 里永久 +1。
+  `account_max_concurrent=1` 时一个漏掉的名额就是致命的：`pick_account()` 每次都把它当满号跳过。
+  上游 v1.10.8 同样有这处泄漏（并发上限是上游 v1.8.0 收编的能力，400 分支原样保留）。
+- **修法**：两处 `raise` 之前先 `account_slot_release(slot_held)` 并把 `slot_held` 置空。
+  只归还名额，**不改 400 的透传语义**——400 是请求级错误，换号也会撞同一堵墙，
+  不应该罚号或轮转。
+- **排查口诀**：面板「号是好的，但请求总是 503/502 且报错只列别的号」→ 先查
+  `GET /settings` 的 `account_inflight`：非空、且对应账号根本没有在飞请求 = 名额泄漏。
+  重启进程可临时清零，根治靠本补丁。
+- 判定：`grep -c "hand the concurrency seat back first" wb_proxy.py`=1、
+  `grep -c "Same leak as the 400 branch above" wb_proxy.py`=1、
+  `python3 tests/_test_account_concurrency.py`（26 例，含 2 例泄漏回归）。
