@@ -316,6 +316,36 @@ with mock.patch.multiple(proxy, ACCOUNTS_DIR=d2, POOL=None):
     check("and reachable mirrors the probe",
           candidates[0]["reachable"] is True, candidates[0])
 
+    # 端口列表可以写多段：共享出口与每节点专属口要一起发现。
+    saved = os.environ.get("WB_PROXY_DISCOVER_PORTS")
+    try:
+        os.environ["WB_PROXY_DISCOVER_PORTS"] = "7890-7892,17901-17903,7892"
+        parsed = list(proxy._proxy_port_range())
+        check("a comma-separated list of ranges is accepted",
+              parsed == [7890, 7891, 7892, 17901, 17902, 17903], parsed)
+        os.environ["WB_PROXY_DISCOVER_PORTS"] = "7890,7891"
+        check("single ports can be listed too",
+              list(proxy._proxy_port_range()) == [7890, 7891])
+        os.environ["WB_PROXY_DISCOVER_PORTS"] = "garbage"
+        check("an unusable value falls back to the documented default",
+              list(proxy._proxy_port_range()) == list(range(17901, 17911)))
+        os.environ["WB_PROXY_DISCOVER_PORTS"] = "17901-17904"
+        seen = []
+        def fake_probe(url, timeout=12):
+            seen.append(url)
+            return dict(PROBE)
+        with mock.patch.object(proxy, "probe_proxy_intel", fake_probe):
+            found_many = proxy.discover_proxy_slots()
+        check("every listed port is probed", len(found_many) == 4, found_many)
+        check("and the order follows the configured ports",
+              [c["url"].rsplit(":", 1)[1] for c in found_many]
+              == ["17901", "17902", "17903", "17904"], found_many)
+    finally:
+        if saved is None:
+            os.environ.pop("WB_PROXY_DISCOVER_PORTS", None)
+        else:
+            os.environ["WB_PROXY_DISCOVER_PORTS"] = saved
+
 print()
 print("[7] an update merges under the store lock and never overwrites a name")
 

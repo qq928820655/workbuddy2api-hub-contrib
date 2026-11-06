@@ -7373,14 +7373,29 @@ PROXY_PROBE_HOST = "api.ipify.org"
 
 
 def _proxy_port_range():
+    """Ports the discover button probes.
+
+    Accepts a single port, a range, or a comma-separated list of either —
+    "7890-7892,17901-17932" covers both the shared hub exits and the per-node
+    ports. A plain range is still the documented default, so an existing
+    deployment keeps its exact behavior.
+    """
     raw = os.environ.get("WB_PROXY_DISCOVER_PORTS") or "17901-17910"
-    if "-" in raw:
-        lo, _, hi = raw.partition("-")
-        if lo.strip().isdigit() and hi.strip().isdigit():
-            return range(int(lo), int(hi) + 1)
-    if raw.strip().isdigit():
-        return [int(raw)]
-    return range(17901, 17911)
+    ports = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "-" in chunk:
+            lo, _, hi = chunk.partition("-")
+            if lo.strip().isdigit() and hi.strip().isdigit():
+                ports.extend(range(int(lo), int(hi) + 1))
+        elif chunk.isdigit():
+            ports.append(int(chunk))
+    if not ports:
+        return range(17901, 17911)
+    # Dedupe while keeping order: overlapping chunks must not probe twice.
+    return list(dict.fromkeys(ports))
 
 
 def _proxy_endpoint(proxy_url):
@@ -7535,15 +7550,35 @@ def probe_proxy_intel(proxy_url, timeout=12):
 
 
 def discover_proxy_slots():
-    """Probe the configured mihomo host/ports and report reachable exits."""
-    out = []
-    for port in _proxy_port_range():
+    """Probe the configured mihomo host/ports and report reachable exits.
+
+    Ports are probed in parallel: a deployment that lists the shared exits
+    plus every per-node port has dozens of candidates, and a serial sweep would
+    spend minutes on the unreachable ones. Order follows the configured port
+    order, not completion order, so the panel list stays stable.
+    """
+    ports = list(_proxy_port_range())
+    if not ports:
+        return []
+    results = {}
+
+    def probe_one(port):
         url = "http://%s:%d" % (PROXY_DISCOVER_HOST, port)
         probe = probe_proxy_intel(url)
         probe["url"] = url
         probe["reachable"] = probe["ok"]
-        out.append(probe)
-    return out
+        return port, probe
+
+    # A high worker count makes the probes compete with each other: measured
+    # here, 16 workers pushed a 161ms handshake to 991ms and failed the gate,
+    # so the list would report exits as too slow when they are fine. Four keeps
+    # 35 ports under ~15s without distorting the numbers.
+    workers = min(4, len(ports))
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for port, probe in pool.map(probe_one, ports):
+            results[port] = probe
+    return [results[port] for port in ports if port in results]
 
 
 def slot_label(entry):
