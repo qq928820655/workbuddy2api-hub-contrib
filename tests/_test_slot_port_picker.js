@@ -48,6 +48,7 @@ try {
     return {
       portOfUrl: portOfUrl,
       slotUrlCellHtml: slotUrlCellHtml,
+      slotNameCellHtml: slotNameCellHtml,
       pickSlotPort: pickSlotPort,
       getSlotPorts: function(){ return SLOT_PORTS; },
       setSlotPorts: function(v){ SLOT_PORTS = v; },
@@ -123,6 +124,55 @@ api.renderProxySlots();
   assert.ok(out.includes('pickSlotPort(0,'), '第 1 行应有端口下拉');
   assert.ok(out.includes('pickSlotPort(1,'), '第 2 行应有端口下拉');
   assert.ok(out.includes('value="17926" selected'), '第 2 行应选中 17926');
+}
+
+/* ---- 6. 名称单元格：手填名称优先，节点名作小字 ---------------------- */
+
+assert.strictEqual(api.slotNameCellHtml({name: 'mihomo-fixed', node: '直连-香港01'}, 0)
+  .includes('直连-香港01'), true, '手填名称旁应显示当前节点名');
+{
+  const cell = api.slotNameCellHtml({name: 'mihomo-fixed', node: '直连-香港01'}, 0);
+  assert.ok(cell.includes('value="mihomo-fixed"'), '名称输入框保留手填值');
+  assert.ok(cell.includes('直连-香港01'), '节点名以小字跟在下面');
+}
+{
+  const cell = api.slotNameCellHtml({name: '', label: '香港 机房', node: 'pro-香港-03'}, 1);
+  assert.ok(cell.includes('placeholder="香港 机房"'), '名称留空时 placeholder 显示自动标签');
+  assert.ok(cell.includes('pro-香港-03'), '名称留空时节点名同样显示');
+}
+{
+  const cell = api.slotNameCellHtml({name: '直连-香港01', node: '直连-香港01'}, 2);
+  assert.ok(!cell.includes('font-size:11px'), '名称与节点名相同时不重复显示小字');
+}
+{
+  const cell = api.slotNameCellHtml({name: 'mihomo-fixed', node: ''}, 3);
+  assert.ok(!cell.includes('font-size:11px'), '拿不到节点名时不画小字');
+}
+
+/* ---- 7. 名称单元格随节点轮换更新 ------------------------------------ */
+
+/* 端口下拉的选项里也带节点名，整表断言会被它干扰；这一节只看名称列，
+ * 所以先清空端口列表，让表格里只剩名称小字这一处节点名。 */
+api.setSlotPorts([]);
+
+api.setSlots([
+  {id: 'slot-1', name: 'mihomo-rotate', url: 'http://127.0.0.1:7891', node: '直连-香港03', enabled: true},
+]);
+api.renderProxySlots();
+{
+  const box = document.getElementById('slotList');
+  const out = String(box && box.innerHTML);
+  assert.ok(out.includes('直连-香港03'), '渲染时带上当前节点名');
+}
+api.setSlots([
+  {id: 'slot-1', name: 'mihomo-rotate', url: 'http://127.0.0.1:7891', node: 'pro-日本02', enabled: true},
+]);
+api.renderProxySlots();
+{
+  const box = document.getElementById('slotList');
+  const out = String(box && box.innerHTML);
+  assert.ok(out.includes('pro-日本02'), '节点换掉后小字跟着换');
+  assert.ok(!out.includes('直连-香港03'), '旧节点名不应残留');
 }
 
 console.log('slot port picker assertions passed');
