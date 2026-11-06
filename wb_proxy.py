@@ -7353,6 +7353,15 @@ def _both(tasks_fn, summary_fn, account):
 
 PROXY_DISCOVER_HOST = os.environ.get("WB_PROXY_DISCOVER_HOST") or "cli-proxy-mihomo"
 
+#: mihomo-pool 面板，用于把「某个本地端口」翻译成「当前选中的节点名」。
+#: 留空表示不接：槽位就只显示自己的别名与探测到的出口，行为与旧版一致。
+PROXY_NODE_MAP_URL = (os.environ.get("WB_PROXY_NODE_MAP_URL") or "").strip().rstrip("/")
+PROXY_NODE_MAP_TOKEN = (os.environ.get("WB_PROXY_NODE_MAP_TOKEN") or "").strip()
+#: 节点名映射的缓存时长：轮询频繁，而节点名只在轮换/回退时才变。
+PROXY_NODE_MAP_TTL = float(os.environ.get("WB_PROXY_NODE_MAP_TTL") or 15)
+_node_map_cache = {"at": 0.0, "ports": {}}
+_node_map_lock = threading.Lock()
+
 # 出口延迟门禁。握手 = 经代理建隧道并完成到目标的 TLS 握手，这段是请求真正
 # 要等的首字节前开销；整请求 = 连 api.ipify.org 取一次 IP 的全流程，跨洋访
 # 问本身就要 300~500ms，所以它只作为「握不了手」时的兜底口径。
@@ -7546,6 +7555,72 @@ def slot_label(entry):
     return auto or str((entry or {}).get("id") or "")
 
 
+def _port_of(url):
+    """Local port of a proxy URL, or None. Only used to key the node map."""
+    endpoint = _proxy_endpoint(url)
+    return endpoint[1] if endpoint else None
+
+
+def proxy_node_map(force=False):
+    """Local port → node name currently selected behind that port.
+
+    A mihomo mixed port is a moving target: the same 127.0.0.1:7890 can exit
+    through a different node after a rotation or an auto-fallback. The pool
+    panel owns that choice, so this pulls its mapping instead of guessing.
+    A missing URL, a network error or a malformed reply all degrade to an
+    empty map — the slot then keeps showing its own label, never a stale node.
+    """
+    if not PROXY_NODE_MAP_URL:
+        return {}
+    now = time.time()
+    with _node_map_lock:
+        if not force and now - _node_map_cache["at"] < PROXY_NODE_MAP_TTL:
+            return dict(_node_map_cache["ports"])
+    url = PROXY_NODE_MAP_URL + "/api/v1/hub-exits"
+    headers = {"User-Agent": "wb-proxy"}
+    if PROXY_NODE_MAP_TOKEN:
+        headers["Authorization"] = "Bearer " + PROXY_NODE_MAP_TOKEN
+    ports = {}
+    try:
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8", "replace"))
+        for entry in (payload or {}).get("exits") or []:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                port = int(entry.get("port"))
+            except (TypeError, ValueError):
+                continue
+            node = str(entry.get("node") or "").strip()
+            if node:
+                ports[port] = node
+    except Exception as exc:
+        # Record the failure too: without a timestamp the next caller retries
+        # immediately and every slot render pays the 5s timeout again. Storing
+        # an empty map means the panel shows aliases until the next window,
+        # which is right — a stale node name would claim traffic goes
+        # somewhere it does not.
+        log("proxy node map: %s fetch failed (%s)" % (PROXY_NODE_MAP_URL, exc))
+        with _node_map_lock:
+            _node_map_cache["at"] = time.time()
+            _node_map_cache["ports"] = {}
+        return {}
+    with _node_map_lock:
+        _node_map_cache["at"] = time.time()
+        _node_map_cache["ports"] = dict(ports)
+    return ports
+
+
+def slot_node_name(entry, node_map=None):
+    """Node name behind a slot's port, or "" when unknown."""
+    port = _port_of((entry or {}).get("url"))
+    if port is None:
+        return ""
+    mapping = node_map if node_map is not None else proxy_node_map()
+    return mapping.get(port, "")
+
+
 def proxy_slots_view():
     """Proxy slots plus how many enabled accounts are bound to each."""
     counts = {}
@@ -7564,10 +7639,12 @@ def proxy_slots_view():
         # WorkBuddy proxy-slot panel.
         pass
     out = []
+    node_map = proxy_node_map()
     for entry in wb_settings.proxy_slots(ACCOUNTS_DIR):
         item = dict(entry)
         item["bound"] = counts.get(entry["id"], 0)
         item["label"] = slot_label(entry)
+        item["node"] = slot_node_name(entry, node_map)
         out.append(item)
     return out
 

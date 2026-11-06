@@ -343,5 +343,87 @@ check("and the stored list is untouched", len(S.proxy_slots(d3)) == 2,
       S.proxy_slots(d3))
 
 print()
+print("[8] the slot shows the node behind its port, not just its alias")
+
+# The hub only knows "the proxy at 127.0.0.1:7890". Which node sits behind it
+# is chosen in mihomo-pool and moves on rotation, so the view asks the pool and
+# keys the answer by local port. Everything here is stubbed: no network.
+
+saved_url = proxy.PROXY_NODE_MAP_URL
+try:
+    proxy.PROXY_NODE_MAP_URL = ""
+    proxy._node_map_cache["at"] = 0.0
+    proxy._node_map_cache["ports"] = {}
+    check("no pool configured means no node name",
+          proxy.proxy_node_map() == {}, proxy.proxy_node_map())
+    check("and the slot keeps an empty node field",
+          proxy.slot_node_name({"url": "http://127.0.0.1:7890"}) == "")
+
+    d4 = tempfile.mkdtemp()
+    S.save(d4, {"proxy_slots": [
+        {"id": "slot-1", "name": "mihomo-fixed", "url": "http://127.0.0.1:7890"},
+        {"id": "slot-2", "name": "", "url": "http://127.0.0.1:7891",
+         "country": "美国", "ip_type": "residential"},
+    ]})
+
+    proxy.PROXY_NODE_MAP_URL = "http://pool.test"
+    payload = {"ok": True, "exits": [
+        {"port": 7890, "group": "HUB-FIXED", "node": "直连-新加坡01"},
+        {"port": 7891, "group": "HUB-ROTATE", "node": "pro-香港-01"},
+        {"port": 7892, "group": "HUB-ASSIGN", "node": ""},
+    ]}
+
+    class FakeResp:
+        def __init__(self, data):
+            self._data = data
+        def read(self):
+            return json.dumps(self._data).encode("utf-8")
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    with mock.patch.object(proxy.urllib.request, "urlopen",
+                           return_value=FakeResp(payload)):
+        mapping = proxy.proxy_node_map(force=True)
+    check("the mapping is keyed by local port",
+          mapping.get(7890) == "直连-新加坡01" and mapping.get(7891) == "pro-香港-01",
+          mapping)
+    check("an exit without a node is not stored",
+          7892 not in mapping, mapping)
+
+    view = {s["id"]: s for s in proxy.proxy_slots_view.__wrapped__(d4)}         if hasattr(proxy.proxy_slots_view, "__wrapped__") else None
+
+    # proxy_slots_view reads the real ACCOUNTS_DIR, so exercise the two pure
+    # helpers it uses instead of swapping global state.
+    check("a named slot still reports the node behind its port",
+          proxy.slot_node_name({"url": "http://127.0.0.1:7890"}, mapping) == "直连-新加坡01")
+    check("an unnamed slot reports its node too",
+          proxy.slot_node_name({"url": "http://127.0.0.1:7891"}, mapping) == "pro-香港-01")
+    check("a slot on an unmapped port reports nothing",
+          proxy.slot_node_name({"url": "http://127.0.0.1:9999"}, mapping) == "")
+    check("the alias is still what slot_label returns",
+          proxy.slot_label({"name": "mihomo-fixed", "id": "slot-1"}) == "mihomo-fixed")
+
+    # A failed fetch must not keep serving the previous mapping: a stale node
+    # name is worse than none, because it claims traffic goes somewhere it does
+    # not.
+    proxy._node_map_cache["at"] = 0.0
+    proxy._node_map_cache["ports"] = {7890: "旧节点"}
+    with mock.patch.object(proxy.urllib.request, "urlopen",
+                           side_effect=RuntimeError("boom")):
+        failed = proxy.proxy_node_map(force=True)
+    check("a failed fetch yields no mapping rather than a stale one",
+          failed == {}, failed)
+    check("and the failure is cached so the next render does not re-probe",
+          proxy._node_map_cache["at"] > 0, proxy._node_map_cache)
+    check("so an immediate retry returns the cached empty map without calling out",
+          proxy.proxy_node_map() == {}, proxy.proxy_node_map())
+finally:
+    proxy.PROXY_NODE_MAP_URL = saved_url
+    proxy._node_map_cache["at"] = 0.0
+    proxy._node_map_cache["ports"] = {}
+
+print()
 print("PASS=%d FAIL=%d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

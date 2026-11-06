@@ -8046,7 +8046,7 @@ async function loadLoginProxyOptions(){
     const opts = ['<option value="">直连（不走代理槽）</option>'];
     if(slots.length) opts.push('<option value="auto">自动（随机挑选未使用的代理槽）</option>');
     for(const s of slots){
-      const label = (s.label || s.name || s.id) + (s.ip ? " · " + s.ip : "") + (s.bound ? " · 已绑定 " + s.bound + " 个账号" : "");
+      const label = slotDisplayName(s) + (s.ip ? " · " + s.ip : "") + (s.bound ? " · 已绑定 " + s.bound + " 个账号" : "");
       opts.push('<option value="' + esc(s.id) + '">' + esc(label) + '</option>');
     }
     sel.innerHTML = opts.join("");
@@ -8485,7 +8485,7 @@ function codeartsSlotSelectHtml(a){
   }
   opts.push.apply(opts, PROXY_SLOTS.map(s =>
     '<option value="' + esc(s.id) + '"' + (s.id === current ? ' selected' : '') + '>'
-    + esc(s.label || s.name || s.id) + (s.enabled === false ? '（停用）' : '') + '</option>'));
+    + esc(slotDisplayName(s)) + (s.enabled === false ? '（停用）' : '') + '</option>'));
   const uidAttr = esc(String(a.uid || '').replace(/[^\w.@-]/g, ''));
   return '<select class="slot-select" onchange="codeartsSetProxy(&quot;' + uidAttr + '&quot;, this.value, this)">'
     + opts.join('') + '</select>';
@@ -18226,6 +18226,15 @@ let PROXY_SLOTS = [];
 let SLOTS_DIRTY = false;
 let SLOT_DISCOVER = [];
 
+/* 出口下拉里显示什么：优先 mihomo 当前选中的节点名，其次槽位别名，最后 id。
+ *
+ * 槽位别名（mihomo-fixed 之类）只是运维自己起的名字，看不出流量实际从哪个
+ * 节点出去；节点名由服务端从 mihomo-pool 拉来（s.node），轮换或自动回退后
+ * 会跟着变。节点名拿不到时退回别名，不显示空白。 */
+function slotDisplayName(s){
+  return (s && (s.node || s.label || s.name || s.id)) || '';
+}
+
 function slotSelectHtml(a){
   const current = a.proxySlot || '';
   // A legacy per-account proxy URL still routes traffic while no slot is
@@ -18241,7 +18250,7 @@ function slotSelectHtml(a){
   }
   opts.push.apply(opts, PROXY_SLOTS.map(s =>
     '<option value="' + esc(s.id) + '"' + (s.id === current ? ' selected' : '') + '>'
-    + esc(s.label || s.name || s.id) + (s.enabled === false ? '（停用）' : '') + '</option>'));
+    + esc(slotDisplayName(s)) + (s.enabled === false ? '（停用）' : '') + '</option>'));
   const uidAttr = esc(String(a.uid || '').replace(/[^\w.@-]/g, ''));
   return '<select class="slot-select" onchange="setAccountSlot(&quot;' + uidAttr + '&quot;, this.value, this)">'
     + opts.join('') + '</select>';
@@ -18319,14 +18328,21 @@ function slotPayload(){
 }
 
 function slotExitHtml(s){
-  if(!s.ip) return '<span style="color:var(--dim-light)">未探测</span>';
+  // 节点名排第一：它才是「流量现在从哪出去」的答案，IP 与归属地是佐证。
+  // 拿不到节点名（没接 mihomo-pool，或控制器暂时不可达）时这一行不显示。
+  const node = s.node
+    ? '<div style="font-size:12px;margin-bottom:2px" title="mihomo 当前选中的节点">'
+      + esc(s.node) + '</div>'
+    : '';
+  if(!s.ip) return node || '<span style="color:var(--dim-light)">未探测</span>';
   const kind = ipTypeLabel(s.ip_type);
   const badge = kind
     ? '<span class="badge ' + (kind === '住宅' ? 's' : '') + '" style="font-size:11px">' + kind + '</span>'
     : '';
   const where = [s.country ? esc(s.country) : '', badge].filter(Boolean).join(' ');
   const tip = [s.isp, s.asn].filter(Boolean).join(' · ');
-  return '<div class="mono" style="font-size:12px">' + esc(s.ip) + '</div>'
+  return node
+    + '<div class="mono" style="font-size:12px">' + esc(s.ip) + '</div>'
     + '<div style="font-size:12px;color:var(--dim);margin-top:2px"'
     + (tip ? ' title="' + esc(tip) + '"' : '') + '>'
     + (where || '<span style="color:var(--dim-light)">国家未知</span>') + '</div>';
