@@ -18615,6 +18615,7 @@ function renderDiscover(){
         return '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px">'
           + '<input type="checkbox" ' + (c.healthy ? 'checked' : 'disabled') + ' data-idx="' + i + '">'
           + '<span class="mono">' + esc(c.url) + '</span>'
+          + (c.node ? '<span class="badge" style="font-size:11px">' + esc(c.node) + '</span>' : '')
           + '<span style="color:' + color + '">'
           + (c.reachable
               ? ('出口 ' + esc(c.exit_ip)

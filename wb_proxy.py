@@ -7578,7 +7578,17 @@ def discover_proxy_slots():
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for port, probe in pool.map(probe_one, ports):
             results[port] = probe
-    return [results[port] for port in ports if port in results]
+    # Attach the node name the pool reports for each port, so the operator can
+    # tell which candidate is which node before importing it as a slot.
+    node_map = proxy_node_map()
+    out = []
+    for port in ports:
+        probe = results.get(port)
+        if probe is None:
+            continue
+        probe["node"] = node_map.get(port, "")
+        out.append(probe)
+    return out
 
 
 def slot_label(entry):

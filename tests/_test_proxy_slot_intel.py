@@ -334,12 +334,19 @@ with mock.patch.multiple(proxy, ACCOUNTS_DIR=d2, POOL=None):
         def fake_probe(url, timeout=12):
             seen.append(url)
             return dict(PROBE)
-        with mock.patch.object(proxy, "probe_proxy_intel", fake_probe):
+        with mock.patch.object(proxy, "probe_proxy_intel", fake_probe), \
+             mock.patch.object(proxy, "proxy_node_map",
+                               return_value={17902: "直连-日本"}):
             found_many = proxy.discover_proxy_slots()
         check("every listed port is probed", len(found_many) == 4, found_many)
         check("and the order follows the configured ports",
               [c["url"].rsplit(":", 1)[1] for c in found_many]
               == ["17901", "17902", "17903", "17904"], found_many)
+        by_port = {c["url"].rsplit(":", 1)[1]: c for c in found_many}
+        check("a discovered port carries the node name the pool reports",
+              by_port["17902"]["node"] == "直连-日本", by_port["17902"])
+        check("a port with no known node carries an empty name",
+              by_port["17901"]["node"] == "", by_port["17901"])
     finally:
         if saved is None:
             os.environ.pop("WB_PROXY_DISCOVER_PORTS", None)
