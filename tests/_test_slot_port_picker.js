@@ -57,6 +57,7 @@ try {
       isDirty: function(){ return SLOTS_DIRTY; },
       resetDirty: function(){ SLOTS_DIRTY = false; },
       renderProxySlots: renderProxySlots,
+      slotExitHtml: slotExitHtml,
     };`)();
 } catch(e) {
   console.log = realLog;
@@ -126,53 +127,101 @@ api.renderProxySlots();
   assert.ok(out.includes('value="17926" selected'), '第 2 行应选中 17926');
 }
 
-/* ---- 6. 名称单元格：手填名称优先，节点名作小字 ---------------------- */
+/* ---- 6. 名称单元格：显示实际节点名，手填名称优先 -------------------- */
 
-assert.strictEqual(api.slotNameCellHtml({name: 'mihomo-fixed', node: '直连-香港01'}, 0)
-  .includes('直连-香港01'), true, '手填名称旁应显示当前节点名');
 {
-  const cell = api.slotNameCellHtml({name: 'mihomo-fixed', node: '直连-香港01'}, 0);
+  const cell = api.slotNameCellHtml({name: '', label: '柬埔寨 住宅', node: 'pro-澳门-20x'}, 0);
+  assert.ok(cell.includes('placeholder="pro-澳门-20x"'),
+    '名称留空时应显示节点名，而不是过期的「国家 类型」');
+  assert.ok(!cell.includes('柬埔寨 住宅'),
+    '节点名可用时不显示探测到的国家性质');
+  assert.ok(!cell.includes('font-size:11px'),
+    '名称留空时节点名就在占位符里，不必再画小字');
+}
+{
+  const cell = api.slotNameCellHtml({name: '', label: '柬埔寨 住宅', node: ''}, 1);
+  assert.ok(cell.includes('placeholder="柬埔寨 住宅"'),
+    '拿不到节点名时退回「国家 类型」兜底');
+}
+{
+  const cell = api.slotNameCellHtml({name: 'mihomo-fixed', label: '柬埔寨 住宅', node: '直连-香港01'}, 2);
   assert.ok(cell.includes('value="mihomo-fixed"'), '名称输入框保留手填值');
-  assert.ok(cell.includes('直连-香港01'), '节点名以小字跟在下面');
+  assert.ok(cell.includes('直连-香港01'), '手填名称时节点名以小字跟在下面');
 }
 {
-  const cell = api.slotNameCellHtml({name: '', label: '香港 机房', node: 'pro-香港-03'}, 1);
-  assert.ok(cell.includes('placeholder="香港 机房"'), '名称留空时 placeholder 显示自动标签');
-  assert.ok(cell.includes('pro-香港-03'), '名称留空时节点名同样显示');
-}
-{
-  const cell = api.slotNameCellHtml({name: '直连-香港01', node: '直连-香港01'}, 2);
+  const cell = api.slotNameCellHtml({name: '直连-香港01', node: '直连-香港01'}, 3);
   assert.ok(!cell.includes('font-size:11px'), '名称与节点名相同时不重复显示小字');
 }
 {
-  const cell = api.slotNameCellHtml({name: 'mihomo-fixed', node: ''}, 3);
+  const cell = api.slotNameCellHtml({name: 'mihomo-fixed', node: ''}, 4);
   assert.ok(!cell.includes('font-size:11px'), '拿不到节点名时不画小字');
 }
 
 /* ---- 7. 名称单元格随节点轮换更新 ------------------------------------ */
 
 /* 端口下拉的选项里也带节点名，整表断言会被它干扰；这一节只看名称列，
- * 所以先清空端口列表，让表格里只剩名称小字这一处节点名。 */
+ * 所以先清空端口列表，让表格里只剩名称这一处节点名。 */
 api.setSlotPorts([]);
 
+/* 名称留空：占位符直接显示节点名，轮换后跟着换。 */
 api.setSlots([
-  {id: 'slot-1', name: 'mihomo-rotate', url: 'http://127.0.0.1:7891', node: '直连-香港03', enabled: true},
+  {id: 'slot-1', name: '', label: '香港 机房', url: 'http://127.0.0.1:7891', node: '直连-香港03', enabled: true},
 ]);
 api.renderProxySlots();
 {
   const box = document.getElementById('slotList');
   const out = String(box && box.innerHTML);
-  assert.ok(out.includes('直连-香港03'), '渲染时带上当前节点名');
+  assert.ok(out.includes('placeholder="直连-香港03"'), '留空时占位符显示当前节点名');
+  assert.ok(!out.includes('香港 机房'), '节点名可用时不显示过期的国家性质');
+}
+api.setSlots([
+  {id: 'slot-1', name: '', label: '香港 机房', url: 'http://127.0.0.1:7891', node: 'pro-日本02', enabled: true},
+]);
+api.renderProxySlots();
+{
+  const box = document.getElementById('slotList');
+  const out = String(box && box.innerHTML);
+  assert.ok(out.includes('placeholder="pro-日本02"'), '节点换掉后名称跟着换');
+  assert.ok(!out.includes('直连-香港03'), '旧节点名不应残留');
+}
+
+/* 手填名称：输入框保留手填值，节点名作小字，轮换后小字跟着换。 */
+api.setSlots([
+  {id: 'slot-1', name: 'mihomo-rotate', url: 'http://127.0.0.1:7891', node: '直连-香港03', enabled: true},
+]);
+api.renderProxySlots();
+{
+  const out = String(document.getElementById('slotList').innerHTML);
+  assert.ok(out.includes('value="mihomo-rotate"'), '手填名称保留');
+  assert.ok(out.includes('直连-香港03'), '节点名以小字显示');
 }
 api.setSlots([
   {id: 'slot-1', name: 'mihomo-rotate', url: 'http://127.0.0.1:7891', node: 'pro-日本02', enabled: true},
 ]);
 api.renderProxySlots();
 {
-  const box = document.getElementById('slotList');
-  const out = String(box && box.innerHTML);
-  assert.ok(out.includes('pro-日本02'), '节点换掉后小字跟着换');
+  const out = String(document.getElementById('slotList').innerHTML);
+  assert.ok(out.includes('pro-日本02'), '轮换后小字跟着换');
   assert.ok(!out.includes('直连-香港03'), '旧节点名不应残留');
+}
+
+/* ---- 8. 出口列：探测快照与当前节点不符时标注过期 -------------------- */
+
+{
+  const stale = api.slotExitHtml({
+    node: 'pro-澳门-20x', ip: '45.119.133.149', country: '柬埔寨',
+    ip_type: 'residential', probed_node: 'pro-泰国02-2x', exit_stale: true,
+  });
+  assert.ok(stale.includes('pro-澳门-20x'), '节点名仍然排第一');
+  assert.ok(stale.includes('旧节点快照'), '地理信息与当前节点不符时标注过期');
+  assert.ok(stale.includes('pro-泰国02-2x'), '并说明快照来自哪个节点');
+}
+{
+  const fresh = api.slotExitHtml({
+    node: 'pro-澳门-20x', ip: '45.119.133.149', country: '澳门',
+    ip_type: 'residential', probed_node: 'pro-澳门-20x', exit_stale: false,
+  });
+  assert.ok(!fresh.includes('旧节点快照'), '快照与当前节点一致时不标过期');
 }
 
 console.log('slot port picker assertions passed');

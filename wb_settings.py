@@ -3281,6 +3281,11 @@ def _clean_slot_entry(entry, fallback_id=None):
         "isp": str(entry.get("isp") or "").strip(),
         "asn": str(entry.get("asn") or "").strip(),
         "probed_at": probed_at,
+        # Node name at the moment of the last successful probe. The exit info
+        # (ip/country/kind) describes that node's exit, not necessarily the one
+        # serving the port now; comparing this against the live node is how the
+        # panel knows the geo block is a snapshot rather than the current truth.
+        "probed_node": str(entry.get("probed_node") or "").strip(),
     }
 
 

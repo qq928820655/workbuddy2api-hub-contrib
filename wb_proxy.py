@@ -7702,6 +7702,13 @@ def proxy_slots_view():
         item["bound"] = counts.get(entry["id"], 0)
         item["label"] = slot_label(entry)
         item["node"] = slot_node_name(entry, node_map)
+        # The stored exit info (ip/country/kind) describes whatever node was
+        # behind the port at probe time. If the live node differs, that block
+        # is a snapshot of a node the traffic no longer uses — say so instead
+        # of presenting it as the current location.
+        probed_node = str(entry.get("probed_node") or "").strip()
+        item["exit_stale"] = bool(
+            item["node"] and probed_node and item["node"] != probed_node)
         out.append(item)
     return out
 
@@ -24780,6 +24787,12 @@ class Handler(BaseHTTPRequestHandler):
                 updated_fields = {
                     "ip": probe["exit_ip"],
                     "probed_at": int(time.time()),
+                    # Record which node this exit info describes. The port may
+                    # be rotated to another node later; the panel compares this
+                    # against the live node so it can tell "this geo block is
+                    # current" from "this is a snapshot from a node that has
+                    # since moved".
+                    "probed_node": slot_node_name(slot) or "",
                 }
                 if probe.get("intel_ok"):
                     updated_fields.update({

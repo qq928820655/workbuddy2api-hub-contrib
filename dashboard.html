@@ -2201,7 +2201,7 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '⇄ 切换默认出口为【国内版】': '⇄ Switch the default exit to China',
     '。名字带渠道后缀（如': '. Names carrying a channel suffix (such as',
     '。没人引用、又已经不作数的策略会被清掉（每个模型至少留一条，刚取到的那批不动）。取价间隔以': '. Policies nobody references and that are no longer valid get cleaned up (every model keeps at least one, and the batch just fetched is left alone). The fetch interval is counted in',
-    '「绑定账号」只统计已启用账号；停用账号会自动释放槽位，重新启用后需重新绑定。在网关页账号表的「出口」下拉中调整绑定。名称留空时按出口自动显示「国家 类型」，点「测试」会补全出口信息并据此命名；手填名称优先，当前节点名以小字显示在名称下方并随轮换变化。': 'Bound accounts counts enabled accounts only; disabling an account releases its slot automatically and you must bind it again after re-enabling. Adjust the binding in the Exit dropdown of the account table on the gateway page. With an empty name the slot shows Country Type from the exit; clicking Test fills in the exit info and names the slot accordingly. A name you type always wins; the current node name appears in small text beneath it and follows rotation.',
+    '「绑定账号」只统计已启用账号；停用账号会自动释放槽位，重新启用后需重新绑定。在网关页账号表的「出口」下拉中调整绑定。名称留空时显示该端口当前实际使用的节点名（接 mihomo-pool 时），节点名拿不到才退回「国家 类型」；点「测试」会补全出口信息。手填名称优先，此时节点名以小字显示在名称下方并随轮换变化。': 'Bound accounts counts enabled accounts only; disabling an account releases its slot automatically and you must bind it again after re-enabling. Adjust the binding in the Exit dropdown of the account table on the gateway page. With an empty name the slot shows the node actually serving that port (when mihomo-pool is connected), falling back to Country Type only when the node name is unavailable; clicking Test fills in the exit info. A name you type always wins, and the node name then appears in small text beneath it, following rotation.',
     '一键做任务领积分': 'Run all tasks and claim credits',
     '上一页': 'Previous',
     '上下文': 'Context',
@@ -3684,7 +3684,7 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     "⇄ 切换默认出口为【国内版】": "⇄ 切換預設出口為【國內版】",
     "。名字带渠道后缀（如": "。名字帶渠道字尾（如",
     "「上游限流」到点自动恢复；「本地停用」需手动启用；「日限额」次日零点恢复": "「上游限流」到點自動恢復；「本地停用」需手動啟用；「日限額」次日零點恢復",
-    "「绑定账号」只统计已启用账号；停用账号会自动释放槽位，重新启用后需重新绑定。在网关页账号表的「出口」下拉中调整绑定。名称留空时按出口自动显示「国家 类型」，点「测试」会补全出口信息并据此命名；手填名称优先，当前节点名以小字显示在名称下方并随轮换变化。": "「繫結帳號」只統計已啟用帳號；停用帳號會自動釋放槽位，重新啟用後需重新繫結。在閘道頁帳號表的「出口」下拉中調整繫結。名稱留空時按出口自動顯示「國家 型別」，點「測試」會補全出口資訊並據此命名。手填名稱優先，目前節點名會以小字顯示在名稱下方並隨輪換變化。",
+    "「绑定账号」只统计已启用账号；停用账号会自动释放槽位，重新启用后需重新绑定。在网关页账号表的「出口」下拉中调整绑定。名称留空时显示该端口当前实际使用的节点名（接 mihomo-pool 时），节点名拿不到才退回「国家 类型」；点「测试」会补全出口信息。手填名称优先，此时节点名以小字显示在名称下方并随轮换变化。": "「繫結帳號」只統計已啟用帳號；停用帳號會自動釋放槽位，重新啟用後需重新繫結。在閘道頁帳號表的「出口」下拉中調整繫結。名稱留空時顯示該埠目前實際使用的節點名（接 mihomo-pool 時），節點名取不到才退回「國家 型別」；點「測試」會補全出口資訊。手填名稱優先，此時節點名會以小字顯示在名稱下方並隨輪換變化。",
     "」的全局默认请填 0 或正整数": "」的全域性預設請填 0 或正整數",
     "一键刷新凭证": "一鍵重新整理憑證",
     "上下文窗口": "上下文視窗",
@@ -18342,23 +18342,27 @@ function slotPayload(){
     enabled: s.enabled !== false,
     ip: s.ip || '', country: s.country || '', country_code: s.country_code || '',
     ip_type: s.ip_type || '', isp: s.isp || '', asn: s.asn || '',
-    probed_at: s.probed_at || 0,
+    probed_at: s.probed_at || 0, probed_node: s.probed_node || '',
   }));
 }
 
-/* 名称单元格：手填名称优先，节点名以一行小字实时跟在下面。
+/* 名称单元格：显示该端口当前实际使用的节点名。
  *
- * 手填名称是运维给槽位起的别名，语义上是「这个槽位叫什么」，不该被节点轮换
- * 冲掉；但别名看不出流量此刻从哪个节点出去，所以把节点名放小字里，轮换或
- * 自动回退后跟着变。名称留空时输入框的 placeholder 显示按出口自动算的标签。
- * 节点名与当前显示名一致时省掉小字，避免同一行重复两遍。
+ * 名称留空时，占位符直接显示节点名（如「pro-澳门-20x」），而不是按探测到的
+ * 国家算出来的「柬埔寨 住宅」——后者是节点性质，出口换节点后它就过期了，
+ * 运维看到的是「到底是澳门还是柬埔寨」这种自相矛盾。节点名拿不到（没接
+ * mihomo-pool，或控制器暂时不可达）时才退回「国家 类型」兜底。
+ *
+ * 手填名称优先：名称列仍归运维所有，手填后在下方用小字显示节点名，随轮换
+ * 变化；名称与节点名一致、或拿不到节点名时不重复画小字。
  */
 function slotNameCellHtml(s, i){
-  const shown = String(s.name || '').trim() || s.label || '';
   const node = String(s.node || '');
-  const input = '<input value="' + esc(s.name || '') + '" placeholder="' + esc(s.label || '') + '" '
+  const custom = String(s.name || '').trim();
+  const placeholder = node || s.label || '';
+  const input = '<input value="' + esc(s.name || '') + '" placeholder="' + esc(placeholder) + '" '
     + 'oninput="PROXY_SLOTS[' + i + '].name=this.value; markSlotsDirty()" class="slot-input" style="width:100%">';
-  if(!node || node === shown) return input;
+  if(!custom || !node || node === custom) return input;
   return '<div style="display:flex;flex-direction:column;gap:2px">'
     + input
     + '<div style="font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"'
@@ -18379,11 +18383,21 @@ function slotExitHtml(s){
     : '';
   const where = [s.country ? esc(s.country) : '', badge].filter(Boolean).join(' ');
   const tip = [s.isp, s.asn].filter(Boolean).join(' · ');
+  // 出口信息是上次探测那个节点的快照。当前节点已经换了时，这段国家/类型不再
+  // 描述实际出口，标成「旧节点快照」并说明是哪个节点，免得把「柬埔寨」当成
+  // 现在的落点（实际已经走 pro-澳门-20x）。
+  const stale = s.exit_stale
+    ? '<div style="font-size:11px;color:var(--warn);margin-top:2px"'
+      + ' title="' + esc('上次探测时的节点：' + (s.probed_node || '未知')) + '">'
+      + '旧节点快照（' + esc(s.probed_node || '未知') + '）</div>'
+    : '';
   return node
-    + '<div class="mono" style="font-size:12px">' + esc(s.ip) + '</div>'
-    + '<div style="font-size:12px;color:var(--dim);margin-top:2px"'
+    + '<div class="mono" style="font-size:12px' + (s.exit_stale ? ';opacity:.55' : '') + '">' + esc(s.ip) + '</div>'
+    + '<div style="font-size:12px;color:var(--dim);margin-top:2px'
+    + (s.exit_stale ? ';opacity:.55' : '') + '"'
     + (tip ? ' title="' + esc(tip) + '"' : '') + '>'
-    + (where || '<span style="color:var(--dim-light)">国家未知</span>') + '</div>';
+    + (where || '<span style="color:var(--dim-light)">国家未知</span>') + '</div>'
+    + stale;
 }
 
 function renderProxySlots(){
@@ -18416,7 +18430,7 @@ function renderProxySlots(){
         + '</td></tr>'
       ).join('')
     + '</tbody></table></div>'
-    + '<div class="legend"><span>「绑定账号」只统计已启用账号；停用账号会自动释放槽位，重新启用后需重新绑定。在网关页账号表的「出口」下拉中调整绑定。名称留空时按出口自动显示「国家 类型」，点「测试」会补全出口信息并据此命名；手填名称优先，当前节点名以小字显示在名称下方并随轮换变化。</span>'
+    + '<div class="legend"><span>「绑定账号」只统计已启用账号；停用账号会自动释放槽位，重新启用后需重新绑定。在网关页账号表的「出口」下拉中调整绑定。名称留空时显示该端口当前实际使用的节点名（接 mihomo-pool 时），节点名拿不到才退回「国家 类型」；点「测试」会补全出口信息。手填名称优先，此时节点名以小字显示在名称下方并随轮换变化。</span>'
     + '<span>接了 mihomo-pool 时，端口下拉可直接挑节点；节点专属口（17901+）永远绑同一个节点，共享口（7890-7892）会随轮换变化。</span></div>';
   applyTableSort('slotList');
 }

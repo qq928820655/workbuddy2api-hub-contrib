@@ -162,6 +162,8 @@ check("the country code is normalised on the way in",
 check("the kind survives", entry["ip_type"] == "residential", entry)
 check("the announcing network survives", entry["asn"].startswith("AS7922"), entry)
 check("the probe time survives", entry["probed_at"] == 1800000000, entry)
+check("a slot saved before probed_node existed loads with it empty",
+      entry["probed_node"] == "", entry)
 
 S.save(d, {"proxy_slots": [{"id": "slot-9", "url": "http://127.0.0.1:17909"}]})
 legacy = S.proxy_slots(d)[0]
@@ -457,6 +459,51 @@ try:
           proxy._node_map_cache["at"] > 0, proxy._node_map_cache)
     check("so an immediate retry returns the cached empty map without calling out",
           proxy.proxy_node_map() == {}, proxy.proxy_node_map())
+finally:
+    proxy.PROXY_NODE_MAP_URL = saved_url
+    proxy._node_map_cache["at"] = 0.0
+    proxy._node_map_cache["ports"] = {}
+
+print()
+print("[8b] a probe snapshot is flagged when the node behind the port moved")
+
+# 出口信息（ip/国家/类型）描述的是「上次探测那个节点」的出口。端口被轮换到
+# 另一个节点后，这段信息就成了旧节点的快照，面板不能把它当成现在的落点。
+# 视图用 probed_node 与当前节点比对，得出 exit_stale。
+
+d5 = tempfile.mkdtemp(prefix="wb-slots-")
+S.set_proxy_slots(d5, [
+    {"id": "slot-1", "name": "", "url": "http://127.0.0.1:7892",
+     "ip": "45.119.133.149", "country": "柬埔寨", "country_code": "KH",
+     "ip_type": "residential", "probed_node": "pro-泰国02-2x"},
+    {"id": "slot-2", "name": "", "url": "http://127.0.0.1:7890",
+     "ip": "23.128.188.10", "country": "新加坡", "country_code": "SG",
+     "ip_type": "residential", "probed_node": "直连-新加坡01"},
+])
+
+saved_url = proxy.PROXY_NODE_MAP_URL
+try:
+    proxy.PROXY_NODE_MAP_URL = "http://pool.test"
+    proxy._node_map_cache["at"] = time.time()
+    proxy._node_map_cache["ports"] = {
+        7892: "pro-澳门-20x", 7890: "直连-新加坡01"}
+    with mock.patch.multiple(proxy, ACCOUNTS_DIR=d5, POOL=None):
+        view = {s["id"]: s for s in proxy.proxy_slots_view()}
+    check("a slot whose node moved is marked stale",
+          view["slot-1"]["exit_stale"] is True, view["slot-1"])
+    check("a slot still on the probed node is not stale",
+          view["slot-2"]["exit_stale"] is False, view["slot-2"])
+    check("the live node is what the view reports",
+          view["slot-1"]["node"] == "pro-澳门-20x", view["slot-1"])
+
+    # No live node (pool unreachable): we cannot prove the snapshot is wrong,
+    # so do not cry stale — the panel just shows the stored info as before.
+    proxy._node_map_cache["at"] = time.time()
+    proxy._node_map_cache["ports"] = {}
+    with mock.patch.multiple(proxy, ACCOUNTS_DIR=d5, POOL=None):
+        view2 = {s["id"]: s for s in proxy.proxy_slots_view()}
+    check("without a live node nothing is flagged stale",
+          view2["slot-1"]["exit_stale"] is False, view2["slot-1"])
 finally:
     proxy.PROXY_NODE_MAP_URL = saved_url
     proxy._node_map_cache["at"] = 0.0
