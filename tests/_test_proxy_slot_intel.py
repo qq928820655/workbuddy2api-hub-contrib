@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -456,6 +457,37 @@ try:
           proxy._node_map_cache["at"] > 0, proxy._node_map_cache)
     check("so an immediate retry returns the cached empty map without calling out",
           proxy.proxy_node_map() == {}, proxy.proxy_node_map())
+finally:
+    proxy.PROXY_NODE_MAP_URL = saved_url
+    proxy._node_map_cache["at"] = 0.0
+    proxy._node_map_cache["ports"] = {}
+
+print()
+print("[9] the slot editor can pick a port instead of typing one")
+
+# 编辑器把 mihomo 的端口列表画成下拉，选中后写回 http://127.0.0.1:<port>。
+# 这里只钉纯函数；DOM 行为由 JS 套件覆盖。
+
+saved_url = proxy.PROXY_NODE_MAP_URL
+try:
+    proxy.PROXY_NODE_MAP_URL = ""
+    proxy._node_map_cache["at"] = 0.0
+    proxy._node_map_cache["ports"] = {}
+    check("no pool means the picker has nothing to offer",
+          proxy.proxy_port_options() == [], proxy.proxy_port_options())
+
+    # 端口选项走的是同一份缓存；给一个非空 URL 才会读缓存而不是直接返回空。
+    proxy.PROXY_NODE_MAP_URL = "http://pool.test"
+    proxy._node_map_cache["at"] = time.time()
+    proxy._node_map_cache["ports"] = {
+        7892: "pro-泰国01-2x", 7890: "直连-新加坡01", 17901: "直连-香港03"}
+    opts = proxy.proxy_port_options()
+    check("every mapped port becomes an option",
+          [o["port"] for o in opts] == [7890, 7892, 17901], opts)
+    check("and each option carries its node name",
+          opts[0]["node"] == "直连-新加坡01" and opts[2]["node"] == "直连-香港03", opts)
+    check("options are ordered by port number, shared exits first",
+          [o["port"] for o in opts] == sorted(o["port"] for o in opts), opts)
 finally:
     proxy.PROXY_NODE_MAP_URL = saved_url
     proxy._node_map_cache["at"] = 0.0

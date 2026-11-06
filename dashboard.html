@@ -2258,6 +2258,8 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '付费用户': 'Paid user',
     '代理地址': 'Proxy address',
     '代理槽': 'Proxy slots',
+    '选端口…': 'Pick a port…',
+    '接了 mihomo-pool 时，端口下拉可直接挑节点；节点专属口（17901+）永远绑同一个节点，共享口（7890-7892）会随轮换变化。': 'With mihomo-pool connected, the port dropdown picks the node directly; per-node ports (17901+) always stay on the same node, while the shared ports (7890-7892) follow rotation.',
     '任务': 'Task',
     '任务名称 / 代码': 'Task name / code',
     '任务执行中...': 'Running tasks...',
@@ -4070,6 +4072,8 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     "网络异常:": "網路異常:",
     "网络异常: ": "網路異常: ",
     "自动发现 mihomo 端口": "自動發現 mihomo 埠",
+    "选端口…": "選埠…",
+    "接了 mihomo-pool 时，端口下拉可直接挑节点；节点专属口（17901+）永远绑同一个节点，共享口（7890-7892）会随轮换变化。": "接了 mihomo-pool 時，埠下拉可直接挑節點；節點專屬埠（17901+）永遠綁同一個節點，共享埠（7890-7892）會隨輪換變化。",
     "若要覆盖已存在的账号，请勾选下方「覆盖同 UID 账号」。": "若要覆蓋已存在的帳號，請勾選下方「覆蓋同 UID 帳號」。",
     "行日志": "行日誌",
     "覆盖同 UID 账号": "覆蓋同 UID 帳號",
@@ -18225,6 +18229,10 @@ let PROXY_SLOTS = [];
  * 置位期间跳过刷新，保存成功后清零。 */
 let SLOTS_DIRTY = false;
 let SLOT_DISCOVER = [];
+/* 槽位编辑器里「代理地址」旁边的端口下拉用。{port, node} 列表，来自
+ * /proxy/ports（即 mihomo 的端口→节点映射）。空数组 = 没接 mihomo-pool，
+ * 这时只留地址输入框，不显示下拉。 */
+let SLOT_PORTS = [];
 
 /* 出口下拉里显示什么：优先 mihomo 当前选中的节点名，其次槽位别名，最后 id。
  *
@@ -18277,9 +18285,20 @@ async function loadProxySlots(force){
   try{
     const r = await getJSON('/proxy/slots');
     PROXY_SLOTS = r.slots || [];
+    await loadSlotPorts();
     renderProxySlots();
   }catch(e){
     // Panel not logged in yet; actions on the settings page surface errors.
+  }
+}
+
+/* 端口下拉的数据源。拉失败就保持空列表，编辑器退回纯地址输入框。 */
+async function loadSlotPorts(){
+  try{
+    const r = await getJSON('/proxy/ports');
+    SLOT_PORTS = (r && r.ports) || [];
+  }catch(e){
+    SLOT_PORTS = [];
   }
 }
 
@@ -18367,7 +18386,7 @@ function renderProxySlots(){
     + PROXY_SLOTS.map((s, i) =>
         '<tr>'
         + '<td data-label="名称"><input value="' + esc(s.name || '') + '" placeholder="' + esc(s.label || '') + '" oninput="PROXY_SLOTS[' + i + '].name=this.value; markSlotsDirty()" class="slot-input"></td>'
-        + '<td data-label="代理地址"><input value="' + esc(s.url || '') + '" oninput="PROXY_SLOTS[' + i + '].url=this.value; markSlotsDirty()" class="slot-input mono"></td>'
+        + '<td data-label="代理地址">' + slotUrlCellHtml(s, i) + '</td>'
         + '<td data-label="出口">' + slotExitHtml(s) + '</td>'
         + '<td style="text-align:center" data-label="启用"><input type="checkbox" ' + (s.enabled === false ? '' : 'checked')
         +   ' onchange="PROXY_SLOTS[' + i + '].enabled=this.checked; markSlotsDirty()"></td>'
@@ -18378,8 +18397,45 @@ function renderProxySlots(){
         + '</td></tr>'
       ).join('')
     + '</tbody></table></div>'
-    + '<div class="legend"><span>「绑定账号」只统计已启用账号；停用账号会自动释放槽位，重新启用后需重新绑定。在网关页账号表的「出口」下拉中调整绑定。名称留空时按出口自动显示「国家 类型」，点「测试」会补全出口信息并据此命名。</span></div>';
+    + '<div class="legend"><span>「绑定账号」只统计已启用账号；停用账号会自动释放槽位，重新启用后需重新绑定。在网关页账号表的「出口」下拉中调整绑定。名称留空时按出口自动显示「国家 类型」，点「测试」会补全出口信息并据此命名。</span>'
+    + '<span>接了 mihomo-pool 时，端口下拉可直接挑节点；节点专属口（17901+）永远绑同一个节点，共享口（7890-7892）会随轮换变化。</span></div>';
   applyTableSort('slotList');
+}
+
+/* 代理地址单元格：一个端口下拉 + 一个可编辑地址框。
+ *
+ * 下拉只负责把端口写进地址（http://127.0.0.1:<port>），地址框仍可手填任意
+ * 上游地址——带账号密码的机场地址、远程主机都靠它。没有端口列表（没接
+ * mihomo-pool）时只画地址框，行为与旧版一致。
+ */
+function slotUrlCellHtml(s, i){
+  const input = '<input value="' + esc(s.url || '') + '" '
+    + 'oninput="PROXY_SLOTS[' + i + '].url=this.value; markSlotsDirty()" '
+    + 'class="slot-input mono" style="width:100%">';
+  if(!SLOT_PORTS.length) return input;
+  const cur = portOfUrl(s.url || '');
+  const opts = ['<option value="">选端口…</option>'].concat(
+    SLOT_PORTS.map(p =>
+      '<option value="' + p.port + '"' + (String(p.port) === String(cur) ? ' selected' : '') + '>'
+      + p.port + (p.node ? ' · ' + esc(p.node) : '') + '</option>'));
+  return '<div style="display:flex;flex-direction:column;gap:4px">'
+    + '<select class="slot-input" style="font-size:12px" onchange="pickSlotPort(' + i + ', this.value)">'
+    + opts.join('') + '</select>'
+    + input + '</div>';
+}
+
+/* 从 http://host:port 里取端口；不是本地回环地址就返回空，免得把远端地址
+ * 的端口误认成 mihomo 端口。 */
+function portOfUrl(url){
+  const m = String(url || '').match(/^https?:\/\/(127\.0\.0\.1|localhost):(\d+)\/?$/i);
+  return m ? m[2] : '';
+}
+
+function pickSlotPort(i, port){
+  if(!port) return;
+  PROXY_SLOTS[i].url = 'http://127.0.0.1:' + port;
+  markSlotsDirty();
+  renderProxySlots();
 }
 
 function addProxySlotRow(){

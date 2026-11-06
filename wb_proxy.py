@@ -7666,6 +7666,18 @@ def slot_node_name(entry, node_map=None):
     return mapping.get(port, "")
 
 
+def proxy_port_options():
+    """Every port a slot can point at, with its node name.
+
+    This is what the slot editor's port picker lists. It reads the same node
+    map the view uses, so the picker and the "出口" column can never disagree.
+    Ordered by port number so the shared exits (7890-7892) come first.
+    """
+    mapping = proxy_node_map()
+    return [{"port": port, "node": node}
+            for port, node in sorted(mapping.items())]
+
+
 def proxy_slots_view():
     """Proxy slots plus how many enabled accounts are bound to each."""
     counts = {}
@@ -22349,6 +22361,12 @@ class Handler(BaseHTTPRequestHandler):
                     401, "panel password required", "invalid_request_error"
                 )
             return self._json(200, {"slots": proxy_slots_view()})
+        if path == "/proxy/ports":
+            if not self._panel_ok():
+                return self._error(
+                    401, "panel password required", "invalid_request_error"
+                )
+            return self._json(200, {"ports": proxy_port_options()})
         if path == "/logs":
             return self._get_logs(query)
         if path == "/logs/export":
