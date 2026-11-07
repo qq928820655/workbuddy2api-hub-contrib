@@ -32,6 +32,22 @@ assert.ok(!/getJSON\('\/accounts\?realm=all', [^)]*POLL_READ/.test(script),
   '/accounts 不能走 POLL_READ：响应里有带凭据的代理地址，必须 no-store');
 assert.ok(!/postJSON\('\/accounts\/credits', \{\}\)/.test(script),
   '面板里不能再有不带参数（= 全池扫）的自动补积分请求');
+// 切版本视图 = 换一份账号池：上一个视图的筛选对新池子往往一个都不匹配，
+// 留着就把列表过滤成空。两个切视图入口都要重置筛选。
+{
+  const at = script.indexOf('async function switchViewRealm(');
+  const end = script.indexOf('\nfunction ', at + 10);
+  const body = script.slice(at, end > at ? end : undefined);
+  assert.ok(at > 0, '找不到 switchViewRealm');
+  assert.ok(body.indexOf('resetAccountFilters') >= 0,
+    '切版本视图要重置账号筛选，否则旧筛选把新池子过滤成空');
+  const tAt = script.indexOf('async function toggleActiveGatewayRealm(');
+  const tEnd = script.indexOf('\n/*', tAt + 10);
+  const tBody = script.slice(tAt, tEnd > tAt ? tEnd : undefined);
+  assert.ok(tAt > 0, '找不到 toggleActiveGatewayRealm');
+  assert.ok(tBody.indexOf('resetAccountFilters') >= 0,
+    '切换网关默认上游同样换账号池，也要重置筛选');
+}
 
 /* ---- 行为：整段脚本配假 DOM ------------------------------------------- */
 

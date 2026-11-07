@@ -167,6 +167,33 @@ body.win-capped #pageAnalytics section.panel{overflow-y:auto}
 body.win-capped #pageAnalytics section.panel .pbody{overflow-y:clip!important;max-height:none!important;overscroll-behavior:auto}
 body.win-capped .main-page section>:first-child{position:sticky;top:0;z-index:3;
   background:var(--panel);padding-top:18px;margin-bottom:0!important;padding-bottom:14px}
+/* 区块标题吸顶（补齐「各菜单标题行未固定」）。沿用限高模式那套已验证的
+   「section padding-top 归零 + 首行 padding-top 顶上 + margin 折成 padding」
+   配方，只是不再依赖 win-capped：不限高时整页滚动，标题照样钉在顶栏下沿。
+   --sticky-top 由 syncSectionSticky() 按顶栏实际高度写入（窄屏 / 经典布局下
+   顶栏高度不同，写死会对不齐）；限高且区块超高时仍走内部滚动、标题钉区块顶部。 */
+.main-page section.sec-scope{padding-top:0}
+.main-page section.sec-scope>:first-child{position:sticky;top:var(--sticky-top,0px);
+  z-index:4;background:var(--panel);padding-top:18px;margin-bottom:0!important;padding-bottom:14px}
+@media (max-width:860px){
+  .main-page section.sec-scope>:first-child{padding-top:14px}
+}
+/* 限高且区块没超高：整页滚动，标题钉顶栏下沿（此时不该被内部滚动的 top:0 压住）。 */
+body.win-capped .main-page section.sec-scope.section-fits{max-height:none!important;overflow:clip!important}
+body.win-capped .main-page section.sec-scope.section-fits>:first-child{top:var(--sticky-top,0px)}
+/* 窄屏不启用区块内部滚动：手机上一屏本来就矮，区块内再套一层滚动区很难点，
+   而整页滚动 + 标题钉顶栏才是触屏的自然操作。限高只在桌面生效。 */
+@media (max-width:860px){
+  body.win-capped .main-page section.sec-scope{max-height:none!important;overflow:clip!important}
+  body.win-capped .main-page section.sec-scope>:first-child{top:var(--sticky-top,0px)}
+}
+/* 看板面板的标题行自带 .phead（渐变底 + 分隔线），单独把 position 从 relative
+   改成 sticky；面板本身 padding:0，不需要搬 padding。 */
+#pageAnalytics section.panel.sec-scope{padding-top:0}
+#pageAnalytics section.panel.sec-scope>.phead{position:sticky;top:var(--sticky-top,0px);z-index:5}
+#pageAnalytics section.panel.sec-scope.section-fits{overflow:clip!important}
+/* 限高且面板确实超高时仍走内部滚动，标题钉面板顶部而不是顶栏下沿。 */
+body.win-capped #pageAnalytics section.panel.sec-scope:not(.section-fits)>.phead{top:0}
 body.win-capped #logTerminalBody{max-height:var(--win-max-h)}
 section h2{margin:0 0 14px;font-size:13px;font-weight:700;color:var(--dim);
   text-transform:uppercase;letter-spacing:.6px}
@@ -310,8 +337,11 @@ table.activity-table td[data-label="结果"]{white-space:nowrap}
 table.account-cards td[data-label="账号"] .cool-list{display:flex;flex-direction:column;align-items:stretch;gap:2px;max-width:100%;overflow:hidden}
 table.account-cards td[data-label="账号"] .cool-pill{display:block;width:100%;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (min-width:641px){
-  table.account-cards{table-layout:fixed;min-width:1262px}
-  table.account-cards th:nth-child(2),table.account-cards td:nth-child(2){width:180px}
+  /* 账号列要放得下完整昵称（含 20+ 字符的长昵称），操作列要放得下恢复显示的
+     「出站身份：」标签，两列都按内容放宽；表宽随之到 1432px，窄桌面靠横向
+     滚动（.table-wrap 已有 overflow-x）。 */
+  table.account-cards{table-layout:fixed;min-width:1432px}
+  table.account-cards th:nth-child(2),table.account-cards td:nth-child(2){width:300px}
   /* 账号表横向滚动时，左侧「版本 / 账号」两列必须跟右侧「操作」列一样钉住。
      否则滚到最右边后账号名会被推出容器，只剩下一排认不出归属的数据。
      排除 cool-row：它是 colspan 整行告警，不是普通账号行的第一列。 */
@@ -328,12 +358,18 @@ table.account-cards td[data-label="账号"] .cool-pill{display:block;width:100%;
   table.account-cards th:nth-child(2){z-index:4;background:var(--panel2)}
   table.account-cards tbody tr:not(.cool-row):hover td:nth-child(1),
   table.account-cards tbody tr:not(.cool-row):hover td:nth-child(2){background:var(--panel2)}
-  table.account-cards td.acct-actions{white-space:normal;min-width:232px;width:232px;position:sticky;right:0;z-index:2;background:var(--panel);box-shadow:-8px 0 12px -12px rgba(31,30,27,.55)}
+  table.account-cards td.acct-actions{white-space:normal;min-width:264px;width:264px;position:sticky;right:0;z-index:2;background:var(--panel);box-shadow:-8px 0 12px -12px rgba(31,30,27,.55)}
   table.account-cards th:last-child{position:sticky;right:0;z-index:3;background:var(--panel2);box-shadow:-8px 0 12px -12px rgba(31,30,27,.55)}
   table.account-cards tbody tr:hover td.acct-actions{background:var(--panel2)}
+  table.account-cards th:last-child{min-width:264px;width:264px}
   /* 操作区沿用原来的两行布局，不在窄列中再次折成三四行。 */
   table.account-cards .acct-actions-col{min-width:max-content;max-width:none}
   table.account-cards .acct-actions-row{flex-wrap:nowrap;max-width:none}
+  /* 昵称比列还长时换行显示，而不是裁成「…」——账户名要能完整读出来。
+     flex:0 1 auto 让它按内容宽度占位，装不下才折行。 */
+  .acct-name-row{flex-wrap:wrap;row-gap:2px}
+  .acct-name{flex:0 1 auto;max-width:100%;white-space:normal;overflow:visible;
+    text-overflow:clip;word-break:break-word}
 }
 @media (max-width:640px){
   table.account-cards{min-width:0!important;table-layout:auto}
@@ -862,8 +898,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   table.account-cards td:nth-child(2) .acct-name-row{flex-wrap:wrap}
   /* 这一格的直接子项默认 min-width:auto（= 内容宽）：长昵称会把整格撑到卡片
      之外——390px 视口实测单元格内容宽 271px、名字行 434px，右侧被裁掉、也没有
-     省略号。钉住 min-width:0 + max-width:100% 后，昵称才真正按格宽省略。 */
+     省略号。钉住 min-width:0 + max-width:100% 后，昵称才真正按格宽收敛。 */
   table.account-cards td:nth-child(2) > *{min-width:0;max-width:100%}
+  /* 手机上昵称要能完整读出来：卡片宽度有限，长昵称按字符折行，不裁成「…」。 */
+  table.account-cards td:nth-child(2) .acct-name{flex:0 1 auto;min-width:0;max-width:100%;
+    white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word}
   .acct-mobile-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
     flex-basis:100%;width:100%;margin-top:4px}
   .acct-mobile-meta .badge{margin-left:0!important}
@@ -922,7 +961,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   table.account-cards .acct-actions-col{flex-direction:row;flex-wrap:wrap;align-items:center;
     justify-content:flex-start;gap:6px}
   table.account-cards .acct-actions-row{display:contents}
-  table.account-cards .acct-actions .id-btn-label{display:none}
+  /* 「出站身份：」标签保留：WB / VSC / CLI 三个缩写单独出现时看不出这组在切什么。
+     手机上它跟按钮一起参与上面那条 flex 流，排得下就同排。 */
   table.account-cards .acct-actions button.mini{min-height:32px;padding:6px 12px}
   table.account-cards .slot-select{max-width:none;width:100%;min-height:40px}
   /* 账号工具栏：打卡按钮（每日活跃/Buddy 加油站）与「添加」同一行并靠右，
@@ -1528,9 +1568,9 @@ table.account-cards td.acct-actions{
 table.account-cards tbody tr:hover td.acct-actions{background:var(--panel2)!important}
 table.account-cards th:last-child{background:var(--panel2)!important;box-shadow:none!important}
 /* Account row actions: keep two compact rows inside the sticky cell. The
-   "出站身份：" label is redundant (the WB/VSC/CLI title explains it). */
+   "出站身份：" label stays: WB / VSC / CLI on their own read as three opaque
+   abbreviations, and the group needs a caption to be understood. */
 table.account-cards .acct-actions-row{flex-wrap:wrap;gap:3px}
-table.account-cards .acct-actions .id-btn-label{display:none}
 table.account-cards .acct-actions button.mini{padding:3px 7px;font-size:10.5px}
 table.account-cards .acct-actions .id-btn{padding:2px 5px;font-size:10px}
 
@@ -3058,6 +3098,12 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '对外名称': 'External name',
     '留空 = 用模型 ID': 'Empty = use the model ID',
     '模型价格估算': 'Model price estimate',
+    '模型别名开关': 'Model alias switch',
+    '控制「网关 → 模型清单 → 对外名称」那一列填的别名是否生效。开启后别名会出现在 <code style="font-family:var(--mono,monospace)">/v1/models</code> 里，客户端用别名调用时网关按对应的模型 ID 转发；原模型名照常可以调用，别名只是多一个可用名。关闭时别名既不进模型清单、也不改写请求，原模型名不受任何影响。默认关闭。': 'Controls whether the aliases typed into the External name column of the gateway model catalog take effect. On: aliases appear in <code style="font-family:var(--mono,monospace)">/v1/models</code> and calling one routes to its model ID; the original model names keep working, an alias is just an extra name. Off: aliases are neither listed nor rewritten, and the original names are unaffected. Off by default.',
+    '启用别名': 'Enable aliases',
+    '已启用：模型别名（别名与原名都可调用）': 'Enabled: model aliases (aliases and original names both work)',
+    '已关闭：模型别名（只按原名调用）': 'Disabled: model aliases (only original names work)',
+    '模型别名开关当前关闭：下面「对外名称」列填的别名不会出现在 <code style="font-family:var(--mono,monospace)">/v1/models</code>，调用也不会被改写。要启用请到「设置 → 模型与定价 → 模型别名开关」打开。': 'The model alias switch is off: aliases typed into the External name column below are not listed in <code style="font-family:var(--mono,monospace)">/v1/models</code> and requests are not rewritten. Turn it on under Settings -> Models & pricing -> Model alias switch.',
     '模型名称': 'Model name',
     '模型性能指标与用量一览': 'Model performance and usage',
     '模型能力': 'Capabilities',
@@ -4194,6 +4240,12 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     "智能体接入": "智能體接入",
     "网关设置": "閘道設定",
     "面板窗口限高": "面板視窗限高",
+    "模型别名开关": "模型別名開關",
+    "控制「网关 → 模型清单 → 对外名称」那一列填的别名是否生效。开启后别名会出现在 <code style=\"font-family:var(--mono,monospace)\">/v1/models</code> 里，客户端用别名调用时网关按对应的模型 ID 转发；原模型名照常可以调用，别名只是多一个可用名。关闭时别名既不进模型清单、也不改写请求，原模型名不受任何影响。默认关闭。": "控制「閘道 → 模型清單 → 對外名稱」那一欄填的別名是否生效。開啟後別名會出現在 <code style=\"font-family:var(--mono,monospace)\">/v1/models</code> 裡，客戶端用別名呼叫時閘道按對應的模型 ID 轉發；原模型名照常可以呼叫，別名只是多一個可用名。關閉時別名既不進模型清單、也不改寫請求，原模型名不受任何影響。預設關閉。",
+    "启用别名": "啟用別名",
+    "已启用：模型别名（别名与原名都可调用）": "已啟用：模型別名（別名與原名都可呼叫）",
+    "已关闭：模型别名（只按原名调用）": "已關閉：模型別名（只按原名呼叫）",
+    "模型别名开关当前关闭：下面「对外名称」列填的别名不会出现在 <code style=\"font-family:var(--mono,monospace)\">/v1/models</code>，调用也不会被改写。要启用请到「设置 → 模型与定价 → 模型别名开关」打开。": "模型別名開關目前關閉：下面「對外名稱」欄填的別名不會出現在 <code style=\"font-family:var(--mono,monospace)\">/v1/models</code>，呼叫也不會被改寫。要啟用請到「設定 → 模型與定價 → 模型別名開關」開啟。",
     "每个窗口（区块）超过这个高度时在窗口内部滚动，不再把整页拉长；滚动时标题行固定在窗口顶部。单位像素；填 0 表示不限。": "每個視窗（區塊）超過這個高度時在視窗內部捲動，不再把整頁拉長；捲動時標題列固定在視窗頂部。單位像素；填 0 表示不限。",
     "窗口最高高度（像素，0 = 不限）": "視窗最高高度（像素，0 = 不限）",
     "已限高：窗口最高 ": "已限高：視窗最高 ",
@@ -5715,6 +5767,12 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
          信息/缓存文件）→ 黄色警示「模型、倍率数据可能不一致」。内容由
          /v1/models 的 catalog 字段驱动，见 renderModelsSourceLine。 -->
     <div id="modelsSourceLine" style="font-size:12px;color:var(--dim);margin:0 0 12px;min-height:16px"></div>
+    <!-- 别名开关关着时，「对外名称」这一列仍可编辑（表不会丢），但别名不生效：
+         既不进 /v1/models 也不改写请求。这条提示把「填了但没启用」说清楚，
+         免得以为保存失败。 -->
+    <div id="modelAliasOffNote" style="display:none;font-size:12px;color:var(--warn);margin:0 0 12px">
+      模型别名开关当前关闭：下面「对外名称」列填的别名不会出现在 <code style="font-family:var(--mono,monospace)">/v1/models</code>，调用也不会被改写。要启用请到「设置 → 模型与定价 → 模型别名开关」打开。
+    </div>
     <div class="next-table-scroll">
       <table id="modelsTable" class="data-cards">
         <thead>
@@ -6762,6 +6820,24 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
               启用过滤
             </label>
             <button onclick="saveFilterModelsByKey(this)">保存</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-cat="models">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
+            <h2 style="margin:0">模型别名开关 <em id="setModelAliasesEnabledState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              控制「网关 → 模型清单 → 对外名称」那一列填的别名是否生效。开启后别名会出现在 <code style="font-family:var(--mono,monospace)">/v1/models</code> 里，客户端用别名调用时网关按对应的模型 ID 转发；原模型名照常可以调用，别名只是多一个可用名。关闭时别名既不进模型清单、也不改写请求，原模型名不受任何影响。默认关闭。
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+              <input id="setModelAliasesEnabled" type="checkbox" style="width:16px;height:16px">
+              启用别名
+            </label>
+            <button onclick="saveModelAliasesEnabled(this)">保存</button>
           </div>
         </div>
       </section>
@@ -8170,6 +8246,9 @@ window.ACCOUNTS = [];
 /* 对外名称表（模型 ID → 对外名称），来自 /settings 的 model_aliases。
    面板的「对外名称」列直接编辑它：写回走 /settings/save。 */
 window.MODEL_ALIASES = {};
+/* 别名开关（model_aliases_enabled）。关闭时别名既不进 /v1/models 也不改写
+   请求；默认关，与后端缺省口径一致。 */
+window.MODEL_ALIASES_ENABLED = false;
 
 function updateUI(){
   const isIntlView = (window.VIEW_REALM === "intl");
@@ -8390,6 +8469,10 @@ async function switchViewRealm(r){
   if(window.VIEW_REALM === r) return;
   setViewRealm(r);
   RECENT_PAGE = 1;
+  // 切换版本视图等于换一份账号池：上一个视图设的搜索词 / 状态 / 分组对新池子
+  // 往往没有意义（例如「需关注」在新池子里一个都不匹配），留着就把列表过滤成
+  // 空，还得手动点「清除筛选」。切视图以「显示全部账号」为默认。
+  if(typeof resetAccountFilters === 'function') resetAccountFilters();
   window.updateUI();
   if(r === "codearts"){
     // CodeArts 没有 WorkBuddy 的账号池/成长任务/调度器，别拿空数据去刷那些接口。
@@ -8418,6 +8501,8 @@ async function toggleActiveGatewayRealm(){
     window.ACTIVE_GATEWAY_REALM = res.current || next;
     toast("网关默认上游已切换并永久保存为: " + realmLabel(window.ACTIVE_GATEWAY_REALM));
     setViewRealm(window.ACTIVE_GATEWAY_REALM);
+    // 同上：换上游出口即换账号池，旧视图的筛选条件清掉。
+    if(typeof resetAccountFilters === 'function') resetAccountFilters();
     window.updateUI();
     if(window.ACTIVE_GATEWAY_REALM === "codearts"){
       await Promise.all([loadCodeartsOverview(true), loadModels(),
@@ -9214,6 +9299,9 @@ async function saveModelMapFromCell(input){
 function renderAvailableModels(){
   const tb = document.querySelector('#modelsTable tbody');
   if(!tb) return;
+  // 别名开关关着时给出提示：表里的「对外名称」照常可编辑，但那些名字不生效。
+  const aliasOffNote = document.getElementById('modelAliasOffNote');
+  if(aliasOffNote) aliasOffNote.style.display = window.MODEL_ALIASES_ENABLED === true ? 'none' : '';
   updateAvailModelCount();
   const query = MODEL_CATALOG_FILTER.trim().toLowerCase();
   const visibleModels = MODELS_DATA.filter(m => !query || [
@@ -14110,6 +14198,58 @@ function syncPageNavOffset(){
   document.documentElement.style.setProperty(PAGE_NAV_TOP_VAR, top + 'px');
 }
 
+/* 区块标题吸顶的两件准备：
+   1) 写 --sticky-top = 顶栏实际高度。顶栏在 next 布局是 #nextTopbar（68px /
+      窄屏 60px），经典布局是 <header>，还有隐藏的情况；写死一个值必然对不齐，
+      所以每次都按当前可见顶栏量一遍。
+   2) 给当前页的顶层 section 打 sec-scope（CSS 吸顶只认它，嵌套 section 的
+      标题不参与），并按「限高时是否真的超高」打 section-fits：没超高的区块
+      不该被 max-height + overflow 截成一个内部滚动框——那样标题会钉在区块
+      顶部而不是顶栏下沿，看起来像没吸顶。 */
+function syncSectionSticky(){
+  const root = document.documentElement;
+  const topbar = document.getElementById('nextTopbar');
+  let bar = null;
+  if(topbar && topbar.offsetHeight > 0 && getComputedStyle(topbar).display !== 'none') bar = topbar;
+  else {
+    const header = document.querySelector('header');
+    if(header && header.offsetHeight > 0 && getComputedStyle(header).display !== 'none') bar = header;
+  }
+  try {
+    if(root && root.style && typeof root.style.setProperty === 'function'){
+      root.style.setProperty('--sticky-top', (bar ? bar.offsetHeight : 0) + 'px');
+    }
+  } catch(e) {}
+
+  const page = document.querySelector('.main-page.active');
+  if(!page) return;
+  const capped = document.body.classList.contains('win-capped');
+  // 窄屏一律不内部滚动（见 CSS 里的说明），所以全部区块都算「不超高」。
+  const narrow = window.matchMedia('(max-width:860px)').matches;
+  // 测试用的假 DOM 可能没有 getPropertyValue，读不到就按 0（= 不限）处理，
+  // 这时所有区块都走整页滚动，行为仍然正确。
+  let capRaw = 0;
+  try {
+    const cs = getComputedStyle(root);
+    if(cs && typeof cs.getPropertyValue === 'function'){
+      capRaw = parseFloat(cs.getPropertyValue('--win-max-h')) || 0;
+    }
+  } catch(e) { capRaw = 0; }
+  const cap = Number.isFinite(capRaw) ? capRaw : 0;
+  Array.prototype.forEach.call(page.querySelectorAll('section'), function(sec){
+    let nested = false;
+    for(let p = sec.parentElement; p && p !== page; p = p.parentElement){
+      if(p.tagName === 'SECTION'){ nested = true; break; }
+    }
+    sec.classList.toggle('sec-scope', !nested);
+    if(nested){ sec.classList.remove('section-fits'); return; }
+    // 只有「限高开着、非窄屏、且区块确实超过限高」才保留内部滚动；
+    // 其余一律整页滚动，标题钉在顶栏下沿。
+    const fits = !capped || narrow || cap <= 0 || sec.scrollHeight <= cap + 2;
+    sec.classList.toggle('section-fits', fits);
+  });
+}
+
 function setActivePageNav(page, id){
   const nav = page ? page.querySelector('.page-nav') : null;
   if(!nav) return;
@@ -14326,6 +14466,7 @@ function initPageNav(page){
     window.addEventListener('resize', function(){
       syncPageNavOffset();
       initPageNav(document.querySelector('.main-page.active'));
+      if(typeof syncSectionSticky === 'function') syncSectionSticky();
       onPageNavScroll();
     });
   }
@@ -15141,6 +15282,8 @@ function applyWinMaxHeight(px){
   document.body.classList.toggle('win-capped', on);
   const state = document.getElementById('setWinMaxHeightState');
   if(state) state.textContent = on ? ('(当前 ' + Math.round(value) + 'px)') : '(不限)';
+  // 限高开关直接改变「哪些区块该走内部滚动」，标题吸顶的分类要跟着重算。
+  if(typeof syncSectionSticky === 'function') syncSectionSticky();
   return on;
 }
 
@@ -15254,6 +15397,15 @@ async function loadSettings(showToast, opts){
       const anthropicMsg = data.enable_anthropic_messages === true;
       const modelAliases = data.model_aliases && typeof data.model_aliases === 'object' ? data.model_aliases : {};
       window.MODEL_ALIASES = modelAliases;
+      const modelAliasesEnabled = data.model_aliases_enabled === true;
+      window.MODEL_ALIASES_ENABLED = modelAliasesEnabled;
+      const modelAliasesEnabledInput = document.getElementById('setModelAliasesEnabled');
+      if(modelAliasesEnabledInput) modelAliasesEnabledInput.checked = modelAliasesEnabled;
+      const modelAliasesEnabledState = document.getElementById('setModelAliasesEnabledState');
+      if(modelAliasesEnabledState){
+        modelAliasesEnabledState.textContent = modelAliasesEnabled ? '(已启用)' : '(未启用)';
+        modelAliasesEnabledState.style.color = modelAliasesEnabled ? 'var(--accent2)' : 'var(--dim)';
+      }
       // 「对外名称」列是这份表的唯一入口（模型清单里行内编辑）。表重画时从
       // window.MODEL_ALIASES 取值，所以这里改完要重画一次，否则刚保存的名称要
       // 等下一次 loadModels 才显示出来。清单还没到时不必画（首屏那条 loadModels
@@ -16124,6 +16276,22 @@ async function saveAnthropicMessages(btn){
     toast(value ? '已启用：Anthropic Messages 接口' : '已关闭：Anthropic Messages 接口', 'ok');
     loadSettings();
   } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function saveModelAliasesEnabled(btn){
+  const el = document.getElementById('setModelAliasesEnabled');
+  const value = !!(el && el.checked);
+  if(btn) btn.disabled = true;
+  try {
+    await postJSON('/settings/save', {model_aliases_enabled: value});
+    toast(value ? '已启用：模型别名（别名与原名都可调用）' : '已关闭：模型别名（只按原名调用）', 'ok');
+    loadSettings();
+  } catch(e) {
+    if(el) el.checked = !value;
     toast('保存失败: ' + e.message, 'bad');
   } finally {
     if(btn) btn.disabled = false;
@@ -18888,6 +19056,8 @@ function switchMainTab(tab){
     // 每个页面各自按自己的区块重建侧栏；非当前页的区块变化在切过来时补上
     if(on) initPageNav(page);
   });
+  // 区块标题吸顶：切页后重算 --sticky-top 与哪些区块该走整页滚动
+  if(typeof syncSectionSticky === 'function') syncSectionSticky();
   if(!window.__NEXT_UI__ && tab === 'gateway') applyConsoleView('overview');
   if(tab === 'tasks'){ loadGrowthTasks(); }
   if(tab === 'accounts' || (!_accountsSeparateTab && tab === 'gateway')){ loadActivityBoard(); }
@@ -22589,7 +22759,7 @@ if (typeof SORT_DENY_TABLES !== 'undefined' && SORT_DENY_TABLES && SORT_DENY_TAB
     model: {
       title: '模型与定价',
       desc: '价格估算、Anthropic 适配、思考档位和模型过滤。',
-      items: ['模型价格估算', '启用 Anthropic Messages', '思考等级挡位映射', '按 API Key 过滤模型列表', '只列出可用模型', '文本 / 媒体号池隔离']
+      items: ['模型价格估算', '模型别名开关', '启用 Anthropic Messages', '思考等级挡位映射', '按 API Key 过滤模型列表', '只列出可用模型', '文本 / 媒体号池隔离']
     },
     automation: {
       title: '自动化',

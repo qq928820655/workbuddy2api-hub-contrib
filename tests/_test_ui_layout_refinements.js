@@ -8,14 +8,14 @@ const script = dashboardScript();
 assert.ok(/\.cool-list\{display:flex;flex-direction:column/.test(html), '账号告警应纵向排列');
 assert.ok(/table\.account-cards td\[data-label="账号"\] \.cool-pill\{display:block;width:100%/.test(html), '告警 pill 应在账号列内收敛');
 assert.ok(/\.acct-actions-row\{flex-wrap:nowrap;max-width:none\}/.test(html), '桌面操作区应保持原来的两行紧凑布局');
-assert.ok(/table\.account-cards\{table-layout:fixed;min-width:1262px\}/.test(html), '桌面账号表应使用固定布局');
+assert.ok(/table\.account-cards\{table-layout:fixed;min-width:1432px\}/.test(html), '桌面账号表应使用固定布局');
 assert.ok(/table\.account-cards th:nth-child\(1\),\s*table\.account-cards tbody tr:not\(\.cool-row\) td:nth-child\(1\)\{[^}]*position:sticky;left:0/.test(html),
   '桌面账号表第一列应固定在左侧');
 assert.ok(/table\.account-cards th:nth-child\(2\),\s*table\.account-cards tbody tr:not\(\.cool-row\) td:nth-child\(2\)\{[^}]*position:sticky;left:76px/.test(html),
   '桌面账号表账号列应固定在版本列右侧');
 assert.ok(/table\.account-cards tbody tr:not\(\.cool-row\):hover td:nth-child\(1\),\s*table\.account-cards tbody tr:not\(\.cool-row\):hover td:nth-child\(2\)\{background:var\(--panel2\)\}/.test(html),
   '左侧固定列悬停时应跟随行背景，不能露出白块');
-assert.ok(/td\.acct-actions\{white-space:normal;min-width:232px;width:232px;position:sticky/.test(html), '操作列应固定在可视区域右侧');
+assert.ok(/td\.acct-actions\{white-space:normal;min-width:264px;width:264px;position:sticky/.test(html), '操作列应固定在可视区域右侧');
 assert.ok(/@media \(max-width:640px\)[\s\S]*?td\.acct-actions\{position:static/.test(html), '移动端应取消操作列 sticky');
 assert.ok(/@media \(max-width:640px\)[\s\S]*?table\.account-cards td:nth-child\(1\),\s*table\.account-cards td:nth-child\(2\)\{position:static;left:auto/.test(html),
   '移动端卡片布局应取消左侧固定列');

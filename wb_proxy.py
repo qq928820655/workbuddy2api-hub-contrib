@@ -12029,6 +12029,7 @@ def runtime_settings_view():
         "transparent_retry_wait": TRANSPARENT_RETRY_WAIT,
         "enable_anthropic_messages": wb_settings.enable_anthropic_messages(ACCOUNTS_DIR),
         "model_aliases": wb_settings.model_aliases(ACCOUNTS_DIR),
+        "model_aliases_enabled": wb_settings.model_aliases_enabled(ACCOUNTS_DIR),
         "filter_models_by_key": wb_settings.filter_models_by_key(ACCOUNTS_DIR),
         "reasoning_effort_map": wb_settings.reasoning_effort_map(ACCOUNTS_DIR),
         "models_only_available": wb_settings.models_only_available(ACCOUNTS_DIR),
@@ -22545,7 +22546,9 @@ class Handler(BaseHTTPRequestHandler):
             pass
         data = [model_entry(mid, meta, req_realm) for mid, meta in entries]
         try:
-            aliases = wb_settings.model_aliases(ACCOUNTS_DIR)
+            # 别名开关关着时 effective_model_aliases() 返回空表：别名既不进
+            # 清单也不改写请求，原模型名照旧可用。
+            aliases = wb_settings.effective_model_aliases(ACCOUNTS_DIR)
         except Exception:
             aliases = {}
         pinned = pinned_account()
@@ -24233,6 +24236,13 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self._error(400, str(exc), "invalid_request_error")
             reply["model_aliases"] = cleaned
+        if "model_aliases_enabled" in payload:
+            raw = payload.get("model_aliases_enabled")
+            if not isinstance(raw, bool):
+                return self._error(400, "model_aliases_enabled must be true or false",
+                                   "invalid_request_error")
+            wb_settings.set_model_aliases_enabled(ACCOUNTS_DIR, raw)
+            reply["model_aliases_enabled"] = raw
         if "filter_models_by_key" in payload:
             raw = payload.get("filter_models_by_key")
             if not isinstance(raw, bool):
@@ -27334,7 +27344,7 @@ class Handler(BaseHTTPRequestHandler):
         if is_media_route:
             return self._handle_media_post(path, payload)
         try:
-            aliases = wb_settings.model_aliases(ACCOUNTS_DIR)
+            aliases = wb_settings.effective_model_aliases(ACCOUNTS_DIR)
         except Exception:
             aliases = {}
         # The key's model restriction is expressed in the names the client

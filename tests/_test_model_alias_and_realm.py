@@ -156,6 +156,34 @@ check("the alias is listed for a key restricted to it",
       "gpt-4o-mini" in listed, listed)
 
 print()
+print("[4d2] the alias switch gates every consumer, the table survives it")
+
+directory3 = tempfile.mkdtemp(prefix="alias-switch-")
+S.set_model_aliases(directory3, {"claude-opus-5": "deepseek-v4.1-flash"})
+check("aliases are off until the switch is set",
+      S.model_aliases_enabled(directory3) is False)
+check("an off switch yields no effective aliases",
+      S.effective_model_aliases(directory3) == {},
+      S.effective_model_aliases(directory3))
+check("the stored table is still readable while off",
+      S.model_aliases(directory3).get("claude-opus-5") == "deepseek-v4.1-flash")
+S.set_model_aliases_enabled(directory3, True)
+check("turning the switch on exposes the stored table",
+      S.effective_model_aliases(directory3).get("claude-opus-5")
+      == "deepseek-v4.1-flash")
+check("advertising uses the effective table, so off means no alias entries",
+      [m["id"] for m in P.alias_model_entries(
+          catalog, S.effective_model_aliases(directory3))][-1] == "claude-opus-5")
+S.set_model_aliases_enabled(directory3, False)
+check("turning the switch off hides the aliases again",
+      S.effective_model_aliases(directory3) == {})
+check("an off switch still leaves the original model advertised",
+      "deepseek-v4.1-flash" in [m["id"] for m in P.alias_model_entries(
+          catalog, S.effective_model_aliases(directory3))])
+check("the switch normalises to a boolean on write",
+      S.set_model_aliases_enabled(directory3, 0) is False)
+
+print()
 print("[4e] the reply echoes the name the client sent")
 
 class _Echo:

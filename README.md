@@ -232,6 +232,7 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 - 289 个套件：218 个 Python + 71 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - 288 个套件：217 个 Python + 71 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - 277 个套件：209 个 Python + 68 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 280 个套件：209 个 Python + 71 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Ubuntu 上 python 3.9 与 3.12（3.9 是本项目声称的最低版本），Windows 上 python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**（`-ci` 演练 tag 豁免）。
 
@@ -255,6 +256,10 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 - **Responses 历史推理保真 / Responses reasoning replay fidelity**：修复连续 `reasoning` 项目只剩最后一段、相邻两轮助手消息被合并、Chat 形状助手历史里的 `reasoning_content` 被丢弃，以及内置 web 工具第二轮请求丢失第一轮推理的问题；推理只关联所属助手消息，不会写入 user/system/tool 普通文本，也不会猜测或改写外部提供者的加密 `encrypted_content`。保真只证明历史按原样送达 WorkBuddy Chat 上游，不额外保证模型的长期任务质量。 / Fix consecutive reasoning replay overwrites, adjacent assistant-turn collapse, Chat-shaped `reasoning_content` loss, and reasoning loss across built-in web-tool follow-ups. Reasoning stays attached to its assistant message, never enters user/system/tool text, and foreign encrypted content is never guessed or rewritten. Preservation proves delivery to the WorkBuddy Chat upstream only, not long-task model quality.
 - **API Key 的出口徽章与模型准入覆盖 CodeArts 出口**（#801 / #802）：绑定固定 CodeArts 出口的 Key 在列表里被画成「跟随面板切换」（图标分支只认 `intl` / `cn`），现在出口徽章统一走 `keyRealmBadge()`，三种出口各回各的；「模型准入」的候选清单也补上 `?realm=codearts`（它的 13 个模型与 intl / cn 完全不交集，以前一个都选不到、只能手填 id），绑定了出口的 Key 只列该出口的目录并在清单上方标出出口，未绑定（跟随面板切换）的才取全量；清单按出口分别缓存，不再由先打开的 Key 决定后面所有 Key 的清单。CodeArts 未启用时不去请求该目录。
 - **手机端账号卡的长昵称不再顶出卡片**：账号名那格的直接子项原来按内容宽排（`min-width:auto`），昵称一长就把整格撑到卡片外面——390px 视口实测单元格内容宽 271px、名字行 434px，右侧被硬裁且没有省略号。现在该格的直接子项钉住 `min-width:0;max-width:100%`，长昵称按格宽省略。
+- **模型别名开关**：设置 →「模型与定价」新增「模型别名开关」（`settings.json` 键 `model_aliases_enabled`，`/settings/save` 只收 JSON 布尔）。关闭（默认）时「网关 → 模型清单 → 对外名称」列填的别名既不进 `/v1/models`、也不改写请求，原模型名照常可用；开启后别名会出现在清单里，客户端用别名调用时网关按对应模型 ID 转发，原模型名仍然可用——别名只是多一个名字。别名表本身不受开关影响，关掉再开不会丢映射；开关关闭时模型清单页会给出提示，说明「填了但没启用」。
+- **各菜单区块标题吸顶**：以前只有限高模式（区块内部滚动）下标题才吸顶，整页滚动时标题会跟着滚走。现在每个菜单页的区块标题行都钉在顶栏下沿，`--sticky-top` 按顶栏实际高度（桌面 68px / 窄屏 60px / 经典布局）动态写入；限高但没超高的区块改为整页滚动（否则标题钉在区块顶部而不是顶栏下沿，看起来像没吸顶）；窄屏不启用区块内部滚动，双层滚动在触屏上很难用。
+- **账号卡恢复「出站身份：」标签，账户名完整显示**：操作区那行曾把「出站身份：」标签当冗余删掉，WB / VSC / CLI 三个缩写单独出现看不出在切什么，现已恢复（桌面与手机都显示）。账户名列原来固定 180px 且昵称强制 nowrap + ellipsis，长昵称在桌面被两侧 chip 挤到只剩 1px、在手机上把卡片顶出屏；现在列宽放宽到 300px、操作列放宽到 264px（放得下标签 + 三个按钮 + 删除），昵称允许换行按字符折断，任何宽度下都能完整读出。
+- **切换版本视图重置账号筛选**：切到国内版 / 国际版 / CodeArts 等于换一份账号池，上一个视图设的搜索词 / 状态 / 分组对新池子往往一个都不匹配，留着就把列表过滤成空。现在切换视图（含切换网关默认上游）都会重置筛选，以「显示全部账号」为默认。
 - **手机端账号区三处布局修正**：批量操作那组 6 个按钮一行摆不下时会被压成竖排单字，窄屏改为两列网格（3 行 2 列），文字保持横排；账号卡第一行原来塞了昵称、备注、分组、任务开关、版本、状态、账户类型，长昵称时整行顶出卡片，现在任务开关与版本 / 状态 / 类型收到第二行单独显示；操作区两层 flex 容器各自换行时「出站身份」会整块另起一行、中间空出一段，两行容器改为 `display:contents` 拆平，按钮按顺序自然流动（「导出」紧跟「同步昵称」，「删除」排在出站身份之后）。以上都只在 ≤640px 生效，桌面布局不变。
 - **请求到达即记日志（`chat head`）**：聊天日志行要等请求体收完才写，上传慢的请求在那段窗口里一行痕迹都没有，看起来像「对话卡住」，也分不清「上传慢」与「请求没到本进程」。现在 `do_POST` 在模型路由的请求头到达时先记一条 `chat head`（带 `content_length` 与 key），配合 `body_wait` 能直接区分两者。只覆盖对话真正使用的路由，面板轮询不刷日志。
 - **`responses:` 日志同时打客户端与实际生效的推理强度**：原来只打请求体里的 `effort`，客户端不填时恒为 `None`，读起来像「没开思考」，实际按模型默认档（如 `high`）在跑。现在同时打 `effort=`（客户端）与 `upstream_effort=`（实际写进上游请求的值），两者用与构造请求体同一份解析逻辑。

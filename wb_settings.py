@@ -1412,6 +1412,10 @@ def set_section_max_height(accounts_dir, value):
 # ——空清单会生成一个没有模型的 provider，客户端直接不可用。
 AGENT_MODELS_KEY = "agent_models"
 MODEL_ALIASES_KEY = "model_aliases"
+# 别名开关：关闭时别名既不进 /v1/models，也不改写请求；开启后别名与原名都可用。
+# 缺省（旧配置文件里没有这个键）按「关闭」处理——别名是运维自己加的映射，
+# 不该在升级后突然对所有客户端可见。
+MODEL_ALIASES_ENABLED_KEY = "model_aliases_enabled"
 
 
 def _clean_model_aliases(raw):
@@ -1442,9 +1446,44 @@ def _clean_model_aliases(raw):
 
 
 def model_aliases(accounts_dir):
-    """Read the operator-maintained model alias table."""
+    """Read the operator-maintained model alias table.
+
+    Returns the raw table regardless of the enable switch: the panel edits the
+    table even while the switch is off, and turning the switch back on must not
+    have lost the mapping. Callers that apply/advertise aliases go through
+    :func:`effective_model_aliases` instead.
+    """
     raw = load(accounts_dir).get(MODEL_ALIASES_KEY)
     return _clean_model_aliases(raw)
+
+
+def model_aliases_enabled(accounts_dir):
+    """Whether the alias table is applied. Missing key reads as off."""
+    value = load(accounts_dir).get(MODEL_ALIASES_ENABLED_KEY)
+    return value is True
+
+
+def set_model_aliases_enabled(accounts_dir, enabled):
+    """Persist the alias switch. Returns the stored boolean."""
+    enabled = bool(enabled)
+    with _lock:
+        data = load(accounts_dir)
+        data[MODEL_ALIASES_ENABLED_KEY] = enabled
+        save(accounts_dir, data)
+    return enabled
+
+
+def effective_model_aliases(accounts_dir):
+    """The aliases to actually honour: empty when the switch is off.
+
+    Every consumer (request rewrite, ``/v1/models`` advertising, key model
+    restriction) goes through this, so flipping the switch is the single place
+    that decides whether aliases exist at all. The original model names are
+    never affected either way: the table only ever adds an extra name.
+    """
+    if not model_aliases_enabled(accounts_dir):
+        return {}
+    return model_aliases(accounts_dir)
 
 
 # 手编一张几十行的别名表已经够用；上限只挡「把设置文件撑爆」这类误操作。
