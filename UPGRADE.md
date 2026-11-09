@@ -19,6 +19,24 @@ git remote -v
 > 本仓库**私有**。运行数据（`accounts/`、`usage/`、`server.log`）已被 `.gitignore` 排除，
 > 不会随提交上传。
 
+## ⚠️ 多机部署与分支（改历史前必读）
+
+> **完整说明见 [`docs/BRANCH-TOPOLOGY.md`](docs/BRANCH-TOPOLOGY.md)。** 下面只列最关键的三条：
+
+1. **`origin/main` ≠ 部署分支**。`git clone` 默认拿到 `origin/main`（`origin/HEAD -> origin/main`），
+   它是**保守基线**，**不含** mihomo 节点下拉 / 节点名显示 / 模型别名开关等新功能 → 新服务器会显示「图一」。
+   带新功能的是 **`261106-feat-proxy-slot-node-name`**（= `main` + 10 个提交，图二）。
+2. **新服务器要图二，必须显式 checkout 功能分支**，不能只 `git clone`：
+   ```bash
+   git clone -b 261106-feat-proxy-slot-node-name https://github.com/qq928820655/workbuddy2api-hub.git
+   ```
+3. **功能分支被 rebase / force-push 后，其他机器不要裸 `git pull`**（会分叉）。改用对齐：
+   ```bash
+   git fetch origin
+   git reset --hard origin/261106-feat-proxy-slot-node-name   # 先备份 accounts/ usage/
+   ```
+   部署机切换分支 / 对齐前先 `./stop.sh`，对齐后再 `./start.sh`。
+
 ## 一、当前基线
 
 - 基于上游 **v1.10.11**（commit `6e1e548`），2026-11-05 升级（v1.10.8 → v1.10.11，55 个上游提交）
