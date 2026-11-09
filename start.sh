@@ -27,6 +27,12 @@
 #                      账号代理槽的自动发现目标（mihomo-pool 的逐节点端口）。
 #                      本机 8006 池子暴露 127.0.0.1:17901-17932。仅在面板/配置
 #                      里启用 proxy_slots 后才会实际使用；未配置时行为与关闭一致。
+#   WB_PROXY_NODE_MAP_URL / WB_PROXY_NODE_MAP_TOKEN
+#                      接 mihomo-pool 面板，让槽位显示节点下拉与真实节点名。
+#                      本脚本在未显式设置时，若 8006 在听会自动接上（token 从
+#                      mihomo-pool/.env 的 MPOOL_TOKEN 读，可用 MPOOL_ENV 指定
+#                      路径）。找不到则保持为空，行为与旧版一致（只有地址框）。
+#                      详见 docs/MIHOMO-POOL-INTEGRATION.md。
 DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$DIR"
 PORT="${WB_PORT:-8788}"
@@ -43,6 +49,29 @@ WB_PROXY_LATENCY_LIMIT_MS="${WB_PROXY_LATENCY_LIMIT_MS:-2000}"
 export TZ WB_ENABLE_ANTHROPIC_MESSAGES WB_MAX_CONCURRENT_CHAT WB_CHAT_SLOT_WAIT
 export WB_TRANSPARENT_RETRY_WAIT WB_PROXY_DISCOVER_HOST WB_PROXY_DISCOVER_PORTS
 export WB_PROXY_RTT_LIMIT_MS WB_PROXY_LATENCY_LIMIT_MS
+
+# 自动接上同机 mihomo-pool，让「账号代理槽」显示节点下拉与真实节点名（图二）。
+# 未显式指定 WB_PROXY_NODE_MAP_URL 时，若 8006 在听，就从同目录的
+# mihomo-pool/.env 读 MPOOL_TOKEN 一并注入。找不到面板或 token 时保持为空，
+# hub 行为与旧版一致（只有地址框=图一）。显式设了就以显式值为准。
+if [ -z "${WB_PROXY_NODE_MAP_URL:-}" ] && ss -tln 2>/dev/null | grep -q ":8006 "; then
+  WB_PROXY_NODE_MAP_URL="http://127.0.0.1:8006"
+  if [ -z "${WB_PROXY_NODE_MAP_TOKEN:-}" ]; then
+    # token 从 mihomo 的 .env 现场读，按常见布局依次尝试，避免手抄出错。
+    for _env in "${MPOOL_ENV:-}" ../mihomo-pool/.env ../mihomo/.env /opt/mihomo-pool/.env; do
+      [ -n "$_env" ] && [ -r "$_env" ] || continue
+      WB_PROXY_NODE_MAP_TOKEN="$(grep '^MPOOL_TOKEN=' "$_env" 2>/dev/null | head -1 | cut -d= -f2-)"
+      [ -n "$WB_PROXY_NODE_MAP_TOKEN" ] && break
+    done
+  fi
+  if [ -n "${WB_PROXY_NODE_MAP_TOKEN:-}" ]; then
+    export WB_PROXY_NODE_MAP_URL WB_PROXY_NODE_MAP_TOKEN
+    echo "[start] 已接上 mihomo-pool ${WB_PROXY_NODE_MAP_URL}（槽位将显示节点名）"
+  else
+    echo "[start] 8006 在听但未找到 MPOOL_TOKEN，跳过节点名映射（设 MPOOL_ENV 或 WB_PROXY_NODE_MAP_TOKEN）"
+    WB_PROXY_NODE_MAP_URL=""
+  fi
+fi
 
 PANEL_ARGS=()
 if [ -n "${WB_PANEL_PASSWORD:-}" ]; then
