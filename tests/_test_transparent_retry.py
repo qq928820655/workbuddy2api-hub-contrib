@@ -109,6 +109,12 @@ class _Base(unittest.TestCase):
         self._old_pool = P.POOL
         self._old_urlopen = A.urlopen
         self._old_wait = P.TRANSPARENT_RETRY_WAIT
+        # 本套件只钉「透明等待」本身，与出站模型别名无关：上游 v2.0.x 起
+        # intl 出站会把 deepseek-v4.1-flash 改写成 -sg，而这里的假账号是按
+        # 逻辑名冷却的。关掉别名让两者对齐，否则 throttle_wait 查的是 -sg、
+        # 冷却记的是 base，永远读到 0 秒，等待路径根本不会触发。
+        self._old_alias = os.environ.get("WB_INTL_MODEL_ALIAS")
+        os.environ["WB_INTL_MODEL_ALIAS"] = "0"
         P.TRANSPARENT_RETRY_WAIT = 30.0
         self.accounts = [self._make_account("uid-a"), self._make_account("uid-b")]
         P.POOL = self._make_pool(self.accounts)
@@ -122,6 +128,10 @@ class _Base(unittest.TestCase):
         P.TRANSPARENT_RETRY_WAIT = self._old_wait
         P.POOL = self._old_pool
         A.urlopen = self._old_urlopen
+        if self._old_alias is None:
+            os.environ.pop("WB_INTL_MODEL_ALIAS", None)
+        else:
+            os.environ["WB_INTL_MODEL_ALIAS"] = self._old_alias
         for patch in reversed(self._patches):
             patch.stop()
 
