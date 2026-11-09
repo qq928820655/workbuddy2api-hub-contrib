@@ -39,7 +39,29 @@ git remote -v
 
 ## 一、当前基线
 
-- 基于上游 **v1.10.11**（commit `6e1e548`），2026-11-05 升级（v1.10.8 → v1.10.11，55 个上游提交）
+- **最新基线：上游 v2.0.8（commit `7ffba72`），2026-11-10 由 `261109-rebase-v2.0.8` 分支 rebase 得到**
+  - 从 v2.0.6 再前进到 v2.0.8 新增 10 个上游提交，其中含两条安全/协议修复：
+    `37e6080`（#842：面板 `X-Robots-Tag: noindex, nofollow` + HTML `<meta name="robots">`，
+    防搜索引擎收录面板页；同时修请求指纹清洗）、`7f1bf10`（清洗 Claude Code 计费归因头完整键名，
+    #853/#854）、`f4cc2a9`（账号表左侧「版本/账号」两列横向滚动时吸附）
+  - 本地 35 个提交 rebase 后保留 **28 个**（7 个已被上游 v2.0.x 吸收，git 自动丢弃）：
+    `350d576` chat head、`a75212d` 自绘下拉、`3fc4e0b` 权重列、`9aeb6bb` responses effort、
+    `2962d06` 400 名额、`0f82a2c` 账号筛选、`3b55a2d` 手机端布局
+  - 上游新能力（v2.0.6 起）：池分离（`wb_pool_*.py` #841）、订阅桥（`wb_subbridge.py` #830）、
+    uTLS 桥、一键启动器、批量 JSON 导入、首屏提速、reasoning 回放保真、fake-IP 探测放行、
+    免费额度回退积分版**已删除**（`MEDIA_IDENTITIES` / `free_model_credit_fallback` 一并移除）
+  - 保留的本地独有：mihomo 槽位系列（节点名/端口下拉/自动发现/旧节点快照）、模型别名开关、
+    对外名称列、区块吸顶/账号卡完整/切视图重置
+  - rebase 冲突：`wb_proxy.py` `dashboard.html` `README.md` `docs/CHANGELOG.md`
+    `tests/_test_mobile_account_layout.js` `tests/_test_ui_layout_refinements.js`；
+    解决原则「两边都留」。其中账号表列宽冲突按「本地宽列宽（1432/300/264，完整昵称）
+    + 上游左侧列吸附（left:0/76px）」合并
+  - 测试：**292 过 / 3 挂**，3 挂为纯上游 v2.0.8 也存在的网络类既有失败
+    （`_test_breaker_fairness` / `_test_egress_backoff` / `_test_pool_backoff`，DNS 解析超时）
+  - 适配改动：`_test_transparent_retry.py` 设 `WB_INTL_MODEL_ALIAS=0` 隔离上游新增的
+    intl 出站别名（否则按逻辑名冷却与 -sg 查询对不上）；README 套件计数修正为 295
+
+- 历史基线：基于上游 **v1.10.11**（commit `6e1e548`），2026-11-05 升级（v1.10.8 → v1.10.11，55 个上游提交）
 - 其上是**按主题拆开的**本地提交（`ops:` 基线提交 + 补丁 7/9/10/11/12/13 + 补丁 14 各自的 feat/fix + docs），标签 `ops-20261105`
 - 升级时**重放这一串提交**即可（`git log upstream/main..main`）
 

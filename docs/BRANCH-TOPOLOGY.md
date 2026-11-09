@@ -9,7 +9,7 @@
 ## 1. 分支拓扑（截至 2026-11-09）
 
 ```
-upstream/main  (ardeyouxipianyi/workbuddy2api-hub)   f8736b3  release: v2.0.6
+upstream/main  (ardeyouxipianyi/workbuddy2api-hub)   7ffba72  release: v2.0.8
         │
         │  fork
         ▼
@@ -124,7 +124,7 @@ git pull --ff-only
 
 ```bash
 # 独立目录做 rebase 的正确姿势（不影响线上）
-git worktree add /tmp/opencode/hub-rebase -b 261109-rebase-v2.0.6 261106-feat-proxy-slot-node-name
+git worktree add /tmp/opencode/hub-rebase -b 261109-rebase-v2.0.8 261106-feat-proxy-slot-node-name
 cd /tmp/opencode/hub-rebase
 git rebase upstream/main
 # 解冲突、跑测试都在这里；线上 8788 完全不受影响
@@ -149,7 +149,7 @@ f1a2475 feat(proxy): 出口下拉显示 mihomo 当前节点名
 
 涉及文件：`wb_proxy.py`、`wb_settings.py`、`dashboard.html`、`start.sh`、`README.md`、`docs/MIHOMO-POOL-INTEGRATION.md` 及 7 个测试文件。
 
-> 其中 `3b55a2d`（手机端布局）、`0f82a2c`（账号筛选）两个补丁**已被上游 v2.0.x 吸收**，rebase 到 v2.0.6 后可丢弃本地版本；其余（mihomo 槽位系列、别名开关、对外名称、吸顶/账号卡）上游没有，必须保留。详见 `docs/REBASE-V2.0.6.md`（若存在）。
+> 其中 `3b55a2d`（手机端布局）、`0f82a2c`（账号筛选）两个补丁**已被上游 v2.0.x 吸收**，rebase 到 v2.0.8 后可丢弃本地版本；其余（mihomo 槽位系列、别名开关、对外名称、吸顶/账号卡）上游没有，必须保留。详见 UPGRADE.md「一、当前基线」。
 
 ---
 
