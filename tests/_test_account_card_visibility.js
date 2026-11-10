@@ -33,9 +33,9 @@ check(/\.id-btn-label\{color:var\(--dim\);font-size:11px;white-space:nowrap\}/.t
 /* ---- 2. 账户名完整显示 ------------------------------------------------- */
 
 // 桌面：列放宽 + 昵称允许换行。
-check(/table\.account-cards\{table-layout:fixed;min-width:1432px\}/.test(html),
-  '桌面账号表最小宽度要跟着放宽的列一起调整');
-check(/table\.account-cards th:nth-child\(2\),table\.account-cards td:nth-child\(2\)\{width:300px\}/.test(html),
+check(/table\.account-cards\{table-layout:fixed;min-width:1468px\}/.test(html),
+  '桌面账号表最小宽度要跟着放宽的列一起调整（含 36px 勾选列）');
+check(/table\.account-cards th:nth-child\(3\),table\.account-cards td:nth-child\(3\)\{width:300px\}/.test(html),
   '账户名列要放宽到 300px，否则长昵称被两侧 chip 挤成 1px');
 check(/\.acct-name\{flex:0 1 auto;max-width:100%;white-space:normal;overflow:visible;\s*text-overflow:clip;word-break:break-word\}/.test(html),
   '昵称要能换行完整显示，而不是 nowrap + ellipsis 裁掉');
@@ -49,7 +49,7 @@ check(/table\.account-cards th:last-child\{min-width:264px;width:264px\}/.test(h
   '表头最后一列要与操作列同宽，否则表头与表体错位');
 
 // 手机：同一套换行规则，且不产生横向溢出。
-check(/table\.account-cards td:nth-child\(2\) \.acct-name\{flex:0 1 auto;min-width:0;max-width:100%;\s*white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word\}/.test(html),
+check(/table\.account-cards td:nth-child\(3\) \.acct-name\{flex:0 1 auto;min-width:0;max-width:100%;\s*white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word\}/.test(html),
   '手机上昵称也要能换行完整显示');
 
 /* ---- 3. 桌面布局其余部分没被改动 --------------------------------------- */

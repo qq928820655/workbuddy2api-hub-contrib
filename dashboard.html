@@ -345,30 +345,52 @@ table.activity-table td[data-label="结果"]{white-space:nowrap}
 .cool-pill{display:inline-block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:600;
   color:#a0691c;background:rgba(183,121,31,.14);border:1px solid rgba(183,121,31,.35);white-space:nowrap}
 /* 桌面账号表的告警按模型逐条纵排；完整模型名/时间仍可通过 title 悬浮查看。 */
+/* 勾选列：号池隔离关闭时这一列既没有表头全选框、行里也没有复选框（DOM 仍保留
+   这一格，列序不变、所有 nth-child 规则不受影响），空的格子直接收掉，不占宽。 */
+table.account-cards th.acct-check:empty,
+table.account-cards td.acct-check:empty{display:none}
+table.account-cards td.acct-check input[type=checkbox]{width:16px;height:16px;
+  vertical-align:middle;cursor:pointer}
+table.account-cards th.acct-check input[type=checkbox]{width:15px;height:15px;
+  vertical-align:middle;cursor:pointer}
 table.account-cards td[data-label="账号"] .cool-list{display:flex;flex-direction:column;align-items:stretch;gap:2px;max-width:100%;overflow:hidden}
 table.account-cards td[data-label="账号"] .cool-pill{display:block;width:100%;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (min-width:641px){
   /* 账号列要放得下完整昵称（含 20+ 字符的长昵称），操作列要放得下恢复显示的
-     「出站身份：」标签，两列都按内容放宽；表宽随之到 1432px，窄桌面靠横向
-     滚动（.table-wrap 已有 overflow-x）。 */
+     「出站身份：」标签，两列都按内容放宽；表宽 1432px，窄桌面靠横向滚动
+     （.table-wrap 已有 overflow-x）。号池隔离开启时最左侧多一列 36px 的勾选
+     列，表宽与吸附位置一起右移 36px（见 .has-pool-sel）。 */
   table.account-cards{table-layout:fixed;min-width:1432px}
-  table.account-cards th:nth-child(2),table.account-cards td:nth-child(2){width:300px}
-  /* 账号表横向滚动时，左侧「版本 / 账号」两列必须跟右侧「操作」列一样钉住。
-     否则滚到最右边后账号名会被推出容器，只剩下一排认不出归属的数据。
-     排除 cool-row：它是 colspan 整行告警，不是普通账号行的第一列。 */
-  table.account-cards th:nth-child(1),
-  table.account-cards tbody tr:not(.cool-row) td:nth-child(1){
-    position:sticky;left:0;z-index:3;background:var(--panel);
-  }
+  table.account-cards.has-pool-sel{min-width:1468px}
+  table.account-cards th:nth-child(3),table.account-cards td:nth-child(3){width:300px}
+  /* 账号表横向滚动时，左侧「版本 / 账号」（开隔离时再加勾选列）必须跟右侧
+     「操作」列一样钉住。否则滚到最右边后账号名会被推出容器，只剩下一排认不出
+     归属的数据。排除 cool-row：它是 colspan 整行告警，不是普通账号行的第一列。
+     勾选列在关闭隔离时是空单元格（display:none），nth-child 序号不变，所以
+     这里只需按 .has-pool-sel 切换吸附偏移。 */
   table.account-cards th:nth-child(2),
   table.account-cards tbody tr:not(.cool-row) td:nth-child(2){
+    position:sticky;left:0;z-index:3;background:var(--panel);
+  }
+  table.account-cards th:nth-child(3),
+  table.account-cards tbody tr:not(.cool-row) td:nth-child(3){
     position:sticky;left:76px;z-index:3;background:var(--panel);
     box-shadow:1px 0 0 var(--line);
   }
-  table.account-cards th:nth-child(1),
-  table.account-cards th:nth-child(2){z-index:4;background:var(--panel2)}
-  table.account-cards tbody tr:not(.cool-row):hover td:nth-child(1),
-  table.account-cards tbody tr:not(.cool-row):hover td:nth-child(2){background:var(--panel2)}
+  table.account-cards.has-pool-sel th:nth-child(1),
+  table.account-cards.has-pool-sel tbody tr:not(.cool-row) td:nth-child(1){
+    position:sticky;left:0;z-index:3;background:var(--panel);
+  }
+  table.account-cards.has-pool-sel th:nth-child(2),
+  table.account-cards.has-pool-sel tbody tr:not(.cool-row) td:nth-child(2){left:36px}
+  table.account-cards.has-pool-sel th:nth-child(3),
+  table.account-cards.has-pool-sel tbody tr:not(.cool-row) td:nth-child(3){left:112px}
+  table.account-cards th:nth-child(2),
+  table.account-cards th:nth-child(3){z-index:4;background:var(--panel2)}
+  table.account-cards.has-pool-sel th:nth-child(1){z-index:4;background:var(--panel2)}
+  table.account-cards tbody tr:not(.cool-row):hover td:nth-child(2),
+  table.account-cards tbody tr:not(.cool-row):hover td:nth-child(3){background:var(--panel2)}
+  table.account-cards.has-pool-sel tbody tr:not(.cool-row):hover td:nth-child(1){background:var(--panel2)}
   table.account-cards td.acct-actions{white-space:normal;min-width:264px;width:264px;position:sticky;right:0;z-index:2;background:var(--panel);box-shadow:-8px 0 12px -12px rgba(31,30,27,.55)}
   table.account-cards th:last-child{position:sticky;right:0;z-index:3;background:var(--panel2);box-shadow:-8px 0 12px -12px rgba(31,30,27,.55)}
   table.account-cards tbody tr:hover td.acct-actions{background:var(--panel2)}
@@ -432,6 +454,18 @@ body.pricing-off #kpiCostCard{display:none}
   border:1px solid var(--line);border-radius:10px}
 .tb-group button.sec{box-shadow:none}
 .tb-group button.sec:hover{background:var(--panel3);border-color:var(--line-hover)}
+/* 批量操作 + 号池工具这一坨在桌面端必须跟以前完全一样：display:contents 让两组
+   直接成为 .toolbar 的 flex 子项，分组胶囊与组间距都不变。移动端才变成一个可
+   折叠的整块（见 ≤640px 规则）。 */
+.tb-advanced{display:contents}
+/* 折叠箭头按钮只在移动端出现，桌面端由 display:none 收掉。 */
+.tb-more-toggle{display:none}
+/* 收起时箭头朝下（可展开），展开后朝上（可收起）。 */
+.tb-more-chev{width:0;height:0;border-top:6px solid currentColor;
+  border-left:5px solid transparent;border-right:5px solid transparent;
+  transition:transform .18s ease;transform:rotate(0deg)}
+.tb-more-toggle[aria-expanded="true"] .tb-more-chev{transform:rotate(180deg)}
+.pool-filter-select{max-width:none;min-height:30px;font-size:12px;padding:4px 8px}
 button{cursor:pointer;font:inherit;font-size:12px;font-weight:500;padding:6px 14px;border-radius:8px;
   border:1px solid var(--accent);background:var(--accent);color:#fff;box-shadow:var(--shadow-sm);transition:all .15s ease}
 button:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
@@ -456,8 +490,8 @@ button.mini{padding:3px 9px;font-size:11px}
    就吃掉 37px，落在 64px 的格子里（减去 td 左右 12px 只剩 40px）后数字被挤成
    1px 宽——界面上只剩一个箭头、看不到权重值。这里把该列放宽、内边距收到 8px，
    并按 mini 家族收紧触发器的 padding/gap，1-3 位数都留得下。 */
-table.account-cards th:nth-child(6),
-table.account-cards td:nth-child(6){padding-left:8px;padding-right:8px}
+table.account-cards th:nth-child(7),
+table.account-cards td:nth-child(7){padding-left:8px;padding-right:8px}
 table.account-cards td[data-label="权重"] .cs-trigger{padding:3px 6px;gap:4px}
 table.account-cards td[data-label="权重"] .cs-arrow{margin-left:0}
 .slot-input{width:100%;background:var(--panel2);border:1px solid var(--line);
@@ -896,23 +930,26 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
      内容；居中会让它看起来是表格的一条汇总横幅。 */
   table.account-cards tr.cool-row td{justify-content:flex-start;text-align:left!important}
   /* Account card: grouped layout */
+  /* 勾选列在手机卡里单独占一行（放在最上面），批量挪号池在触屏上也能用。 */
+  table.account-cards td:nth-child(1){order:0;grid-column:span 6;
+    justify-content:flex-start;min-height:0;padding:0 0 2px}
   /* 版本 / 状态两列在手机卡里不单独占位：徽章收进账号名右侧同一行（acct-name-row
      内的 .acct-mobile-badges），省掉两行空白。 */
-  table.account-cards td:nth-child(1){display:none}
-  table.account-cards td:nth-child(3){display:none}
+  table.account-cards td:nth-child(2){display:none}
+  table.account-cards td:nth-child(4){display:none}
   .acct-mobile-badges{display:inline-flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0}
   /* 账号名一行只留昵称 / 备注 / 分组：任务开关与版本 / 状态 / 类型徽章收到
      第二行单独显示。以前它们都挤在昵称同一行，长昵称 + 多个徽章会把这一行
      顶出卡片宽度（超屏）。 */
   /* 账号名那行要允许换行，第二行容器再用 flex-basis:100% 强制独占一行；
      只给 width:100% 不够——它是 nowrap flex 的子项，仍会与昵称同排。 */
-  table.account-cards td:nth-child(2) .acct-name-row{flex-wrap:wrap}
+  table.account-cards td:nth-child(3) .acct-name-row{flex-wrap:wrap}
   /* 这一格的直接子项默认 min-width:auto（= 内容宽）：长昵称会把整格撑到卡片
      之外——390px 视口实测单元格内容宽 271px、名字行 434px，右侧被裁掉、也没有
      省略号。钉住 min-width:0 + max-width:100% 后，昵称才真正按格宽收敛。 */
-  table.account-cards td:nth-child(2) > *{min-width:0;max-width:100%}
+  table.account-cards td:nth-child(3) > *{min-width:0;max-width:100%}
   /* 手机上昵称要能完整读出来：卡片宽度有限，长昵称按字符折行，不裁成「…」。 */
-  table.account-cards td:nth-child(2) .acct-name{flex:0 1 auto;min-width:0;max-width:100%;
+  table.account-cards td:nth-child(3) .acct-name{flex:0 1 auto;min-width:0;max-width:100%;
     white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word}
   .acct-mobile-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
     flex-basis:100%;width:100%;margin-top:4px}
@@ -920,48 +957,48 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   .acct-mobile-meta .acct-mobile-badges{margin-left:0}
   table.account-cards td:nth-child(1)::before,
   table.account-cards td:nth-child(2)::before,
-  table.account-cards td:nth-child(3)::before{content:none}
-  table.account-cards td:nth-child(2){order:1;grid-column:span 6;flex-direction:column;align-items:flex-start;gap:2px}
+  table.account-cards td:nth-child(4)::before{content:none}
+  table.account-cards td:nth-child(3){order:1;grid-column:span 6;flex-direction:column;align-items:flex-start;gap:2px}
   /* 移动端账号卡「今日活动」行内化：上游默认两行（标签一行、状态徽章又独占一行），
      改成标签与徽章同排一行；国内版双徽章摆不下时靠 flex-wrap 自动换行。 */
-  table.account-cards td:nth-child(4){order:4;grid-column:span 6;justify-content:flex-start;flex-wrap:wrap;gap:4px 6px}
-  table.account-cards td:nth-child(4)::before{font-size:10px}
+  table.account-cards td:nth-child(5){order:4;grid-column:span 6;justify-content:flex-start;flex-wrap:wrap;gap:4px 6px}
+  table.account-cards td:nth-child(5)::before{font-size:10px}
   /* 出口（第 5 列）与权重（第 6 列）并成一行：出口下拉在前、权重在后，
      两者都是「标签：控件」的行内形态（权重显示成「权重：1」）。
      两列高度必须一致，否则出口的 34px 下拉会比权重的 22px 下拉高出一截，
      同一行看起来参差不齐。这里把两个 select 统一到 34px、并让两格
      align-items:center，标签与控件在中线上对齐。 */
-  table.account-cards td:nth-child(5),
-  table.account-cards td:nth-child(6){order:5;flex-direction:row;align-items:center;
+  table.account-cards td:nth-child(6),
+  table.account-cards td:nth-child(7){order:5;flex-direction:row;align-items:center;
     justify-content:flex-start;gap:4px;min-width:0;min-height:36px}
-  table.account-cards td:nth-child(5){grid-column:span 3}
   table.account-cards td:nth-child(6){grid-column:span 3}
-  table.account-cards td:nth-child(6)::before{content:'权重：';white-space:nowrap;flex-shrink:0}
-  table.account-cards td:nth-child(5)::before{white-space:nowrap;flex-shrink:0}
+  table.account-cards td:nth-child(7){grid-column:span 3}
+  table.account-cards td:nth-child(7)::before{content:'权重：';white-space:nowrap;flex-shrink:0}
+  table.account-cards td:nth-child(6)::before{white-space:nowrap;flex-shrink:0}
   /* 出口 / 权重两格里的自绘下拉：各占该格剩余宽度（长节点名自动省略），
      标签宽度固定不被压。以前靠全局 cs-block 的 width:100%，而 100% 是
      相对整个单元格算的，加上前面的「出口」标签就会溢出到下一格、盖住
      「权重：」的第一个字（顶部截图里只剩「重:」）。 */
-  table.account-cards td:nth-child(5) .cs-wrap,
-  table.account-cards td:nth-child(6) .cs-wrap{display:block;width:auto;flex:1 1 0;min-width:0}
-  table.account-cards td:nth-child(5) .slot-select{width:auto;max-width:none;min-height:34px;height:34px;flex:1 1 auto;min-width:0}
-  table.account-cards td:nth-child(6) .mini-select{min-height:34px;height:34px;padding:0 6px;align-self:center}
+  table.account-cards td:nth-child(6) .cs-wrap,
+  table.account-cards td:nth-child(7) .cs-wrap{display:block;width:auto;flex:1 1 0;min-width:0}
+  table.account-cards td:nth-child(6) .slot-select{width:auto;max-width:none;min-height:34px;height:34px;flex:1 1 auto;min-width:0}
+  table.account-cards td:nth-child(7) .mini-select{min-height:34px;height:34px;padding:0 6px;align-self:center}
   /* 积分（第 7 列）与请求（第 8 列）：各占一半、铺满整行，左右边缘分别与上一行
      的「出口」「权重」对齐；两格等高、内容水平垂直居中。以前各占 1/3 宽，右边
      留空一截，看着像没铺满。 */
-  table.account-cards td:nth-child(7),
-  table.account-cards td:nth-child(8){order:6;grid-column:span 3;
+  table.account-cards td:nth-child(8),
+  table.account-cards td:nth-child(9){order:6;grid-column:span 3;
     flex-direction:column;align-items:center;justify-content:center;gap:2px;
     padding:6px 4px;min-height:48px;
     background:var(--panel2);border-radius:8px;text-align:center}
-  table.account-cards td:nth-child(7) .credit-stack{width:100%;align-items:center}
-  table.account-cards td:nth-child(7) .credit-main,
-  table.account-cards td:nth-child(7) .credit-meta{justify-content:center}
+  table.account-cards td:nth-child(8) .credit-stack{width:100%;align-items:center}
+  table.account-cards td:nth-child(8) .credit-main,
+  table.account-cards td:nth-child(8) .credit-meta{justify-content:center}
   /* 积分格（第 7 列）：column-reverse 会把 ::before 的「积分」列标签排到最底部，
      与「明细」按钮错行。隐藏列标签——PC 版这一格本来就只有数值和「明细」，
      手机上也保持一致，不再额外加一个「积分」字样去挤那一行。 */
-  table.account-cards td:nth-child(7)::before{content:none}
-  table.account-cards td:nth-child(8)::before{font-size:10px}
+  table.account-cards td:nth-child(8)::before{content:none}
+  table.account-cards td:nth-child(9)::before{font-size:10px}
   table.account-cards td.acct-actions{order:7;grid-column:span 6;justify-content:flex-start}
   table.account-cards td.acct-actions::before{content:none}
   /* 操作区在手机上是「一条自动换行的按钮流」：两行容器的 .acct-actions-row 用
@@ -979,6 +1016,19 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   /* 账号工具栏：打卡按钮（每日活跃/Buddy 加油站）与「添加」同一行并靠右，
      不再单独占一整行。 */
   #accountsBody .toolbar .tb-checkin{margin-left:auto;flex-shrink:0}
+  /* 批量操作 + 号池工具在手机上默认收起：一次铺开 8 个按钮，账号列表被推到
+     首屏之外。箭头按钮跟「一键测试」同排（.tb-quick 保持一行），点开才把
+     .tb-advanced 展开成两组竖排。 */
+  .tb-more-toggle{display:inline-flex;align-items:center;justify-content:center;
+    min-width:34px;padding:6px 10px}
+  #accountsBody .toolbar .tb-advanced{display:flex;flex-direction:column;gap:6px;
+    flex-basis:100%;width:100%;order:99}
+  #accountsBody .toolbar .tb-advanced.is-collapsed{display:none}
+  #accountsBody .toolbar .tb-advanced .tb-group{display:flex;flex-wrap:wrap;
+    width:100%;padding:4px}
+  /* 号池隔离没开时 #poolToolsGroup 带 hidden，上面那条 display:flex 会压过
+     UA 的 [hidden]{display:none}，这里显式收回。 */
+  #accountsBody .toolbar .tb-advanced .tb-group[hidden]{display:none}
   /* 批量操作那一组 6 个按钮：一行摆不下时每个按钮被压成竖排文字（「一 / 键 /
      分 / 配 / 代 / 理」）。窄屏改成两列网格，6 个按钮排成 3 行 2 列，按钮
      文字保持横排可读。只作用于这一个 .tb-bulk 组，其它工具栏按钮不受影响。 */
@@ -2107,8 +2157,11 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '默认关闭：所有账号都能服务文本与图片 / 视频；开启后才按号池标签限制派发。':
       'Off by default: every account can serve text, image and video. Turn it on to enforce pool labels.',
     '未勾选': 'None selected',
-    '勾选移入媒体池': 'Move selected to media pool',
-    '勾选移回文本池': 'Move selected to text pool',
+    '移入媒体池': 'Move to media pool',
+    '移入文本池': 'Move to text pool',
+    '按号池筛选账号': 'Filter accounts by pool',
+    '展开 / 收起批量操作与号池工具': 'Show / hide bulk actions and pool tools',
+    '全选 / 全不选当前页': 'Select / deselect all on this page',
     '号池：文本号池只跑对话，媒体号池只跑图片 / 视频。点一下切换': 'Pool: text accounts serve chat only; media accounts serve image / video only. Click to switch.',
     '勾选后可批量挪号池': 'Tick to move this account between pools in bulk',
     '先勾选要挪号池的账号': 'Select the accounts to move first',
@@ -3646,8 +3699,11 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     "默认关闭：所有账号都能服务文本与图片 / 视频；开启后才按号池标签限制派发。":
       "預設關閉：所有帳號都能服務文字與圖片 / 影片；開啟後才依號池標籤限制派發。",
     "未勾选": "未勾選",
-    "勾选移入媒体池": "勾選移入媒體池",
-    "勾选移回文本池": "勾選移回文字池",
+    "移入媒体池": "移入媒體池",
+    "移入文本池": "移入文字池",
+    "按号池筛选账号": "依號池篩選帳號",
+    "展开 / 收起批量操作与号池工具": "展開 / 收起批次操作與號池工具",
+    "全选 / 全不选当前页": "全選 / 全不選目前頁",
     "号池：文本号池只跑对话，媒体号池只跑图片 / 视频。点一下切换":
       "號池：文字號池只跑對話，媒體號池只跑圖片 / 影片。點一下切換",
     "勾选后可批量挪号池": "勾選後可批次挪號池",
@@ -5906,11 +5962,18 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
     <button class="sec" onclick="openImport()">导入</button>
     <button class="sec" onclick="exportAccounts(this)">导出</button>
     </div>
-    <div class="tb-group">
+    <div class="tb-group tb-quick">
     <button class="sec" onclick="fetchCredits(this)">一键刷新积分</button>
     <button class="sec" onclick="refreshAccounts(this)" title="逐个刷新所有账号的上游访问凭证（相当于对每个账号点一次「刷新凭证」）">一键刷新凭证</button>
     <button class="sec" onclick="testAccounts(this)" title="逐个真发一条最小请求，并同时检查本机到上游的网络：能分清「账号坏了」和「本机断网了」，测试通过还会清掉该账号的熔断/降权计数">一键测试</button>
+    <!-- 移动端把批量操作与号池工具默认收起：一次铺开太多按钮，账号列表被推到
+         首屏之外。箭头按钮跟「一键测试」同排，点开才显示下面的两组；桌面端
+         始终展开（.tb-advanced 用 display:contents 透明化，布局与以前一致）。 -->
+    <button class="sec tb-more-toggle" id="btnAcctMore" aria-expanded="false"
+            aria-controls="acctAdvancedTools" onclick="toggleAcctAdvanced(this)"
+            title="展开 / 收起批量操作与号池工具"><span class="tb-more-chev" aria-hidden="true"></span></button>
     </div>
+    <div class="tb-advanced is-collapsed" id="acctAdvancedTools">
     <div class="tb-group tb-bulk">
     <button class="sec" onclick="autoAssignSlots(this)" title="把尚未绑定出口的已启用账号依次分配到已启用的代理槽；已有绑定的账号不受影响">一键分配代理</button>
     <button class="sec" id="btnProductAll" onclick="cycleAllProducts(this)" title="把全部账号（含另一个版本）的出站身份切到下一个：WB → VSC → CLI">一键切换所有出站身份：<span id="productAllLabel">WB</span></button>
@@ -5920,12 +5983,14 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
     <button class="sec" onclick="setCurrentGroup(false, this)">当前分组停用</button>
     </div>
     <div class="tb-group tb-pool" id="poolToolsGroup" hidden>
-    <button class="sec" id="pfAll" onclick="poolFilter('all', this)">全部号池</button>
-    <button class="sec" id="pfText" onclick="poolFilter('text', this)">文本号池</button>
-    <button class="sec" id="pfMedia" onclick="poolFilter('media', this)">媒体号池</button>
-    <span id="batchPoolCount" style="font-size:12px;color:var(--dim);align-self:center">未勾选</span>
-    <button class="sec" id="batchToMedia" onclick="batchPoolScope('media', this)" title="把勾选的账号批量移入媒体号池（只跑图片 / 视频）" disabled>勾选移入媒体池</button>
-    <button class="sec" id="batchToText" onclick="batchPoolScope('text', this)" title="把勾选的账号批量移回文本号池（恢复文本模型）" disabled>勾选移回文本池</button>
+    <select id="poolFilterSelect" class="mini-select pool-filter-select" onchange="poolFilter(this.value)" title="按号池筛选账号">
+      <option value="all">全部号池</option>
+      <option value="text">文本号池</option>
+      <option value="media">媒体号池</option>
+    </select>
+    <button class="sec" id="batchToMedia" onclick="batchPoolScope('media', this)" title="把勾选的账号批量移入媒体号池（只跑图片 / 视频）" disabled>移入媒体池</button>
+    <button class="sec" id="batchToText" onclick="batchPoolScope('text', this)" title="把勾选的账号批量移回文本号池（恢复文本模型）" disabled>移入文本池</button>
+    </div>
     </div>
   </div>
     <div id="accounts"></div>
@@ -10781,7 +10846,7 @@ function fmtLeft(seconds){
 const TIP_COOL_HIT = '上游判定该模型额度用满（code 6004）；仅此模型受限，同账号其他模型照常接单';
 const TIP_COOL_PLAIN = '上游临时限流（429），到点自动恢复；仅此模型受限，同账号其他模型照常接单';
 const TIP_LIMIT = '该模型今日 token 用量达到「按模型每日 Token 限额」；仅此模型受限，同账号其他模型照常接单';
-const COOL_ROW_COLS = 11;   // 与 accounts 表头的列数一致
+const COOL_ROW_COLS = 12;   // 与 accounts 表头的列数一致（含最左侧勾选列）
 function coolRow(a){
   const list = a && Array.isArray(a.modelCooldowns) ? a.modelCooldowns : [];
   const pills = list.map(c => {
@@ -11313,15 +11378,20 @@ function accountRow(a){
   // 有续行时给账号行打 has-alert：两行是同一块内容，中间不该有分割线（见 CSS）。
   const alertRows = coolRow(a) + limitRow(a);
   return '<tr' + (alertRows ? ' class="has-alert"' : '') + '>'
+    // 勾选列：固定在最左侧，表头有全选框。号池隔离没开时这一列留空（列数保持
+    // 不变，否则所有 nth-child 布局规则都会跟着漂移），开隔离才出现复选框。
+    + '<td class="acct-check" style="text-align:center">'
+    +   (POOL_SEPARATION_EFFECTIVE
+          ? '<input type="checkbox" class="acct-sel" data-uid="' + uidAttr + '"'
+    +     (ACCT_SELECTED.has(String(a.uid || '')) ? ' checked' : '')
+    +     ' onchange="toggleAcctSel(this)" onclick="event.stopPropagation()"'
+    +     ' title="勾选后可批量挪号池">'
+          : '')
+    + '</td>'
     + '<td style="text-align:center;white-space:nowrap" data-label="版本">' + realmBadge + tierBadgeBlock + '</td>'
     + '<td style="text-align:left" data-label="账号">'
     // 账号名（大一号）+ 备注 chip 同一行；备注从独立一行收进账号后面。
     +   '<div class="acct-name-row">'
-    +     (POOL_SEPARATION_EFFECTIVE
-          ? '<input type="checkbox" class="acct-sel" data-uid="' + uidAttr + '"'
-    +     ' onchange="updateBatchPoolBar()" onclick="event.stopPropagation()"'
-    +     ' style="vertical-align:middle;margin-right:2px" title="勾选后可批量挪号池">'
-          : '')
     +     (POOL_SEPARATION_EFFECTIVE
           ? '<span class="badge mini' + ((a.poolScope==='media')?' warn':'') + '"'
     +     ' style="cursor:pointer;margin-right:4px"'
@@ -11774,6 +11844,9 @@ let ACCT_PAGE_REALM = null;
 let ACCT_PAGE_FILTER = null;
 let POOL_FILTER = 'all';
 let POOL_SEPARATION_EFFECTIVE = false;
+// 已勾选的账号 uid：整表重画（轮询有数据变化、翻页、排序）后勾选不丢。只存
+// uid，渲染时按当前页的行回填，账号被删掉后自然不再出现。
+let ACCT_SELECTED = new Set();
 // 账号表上次真正画进 DOM 的内容指纹（同最近请求表的 lastRecentFp）：轮询拿回来
 // 的数据没变就整段跳过，不重拼 HTML、不重排。
 let lastAccountsFp = null;
@@ -11892,7 +11965,13 @@ function renderAccounts(){
       + '</div>';
     return;
   }
-  const tableHtml = body => '<div class="table-wrap"><table class="data-cards account-cards"><thead><tr>'
+  const tableHtml = body => '<div class="table-wrap"><table class="data-cards account-cards'
+    + (POOL_SEPARATION_EFFECTIVE ? ' has-pool-sel' : '') + '"><thead><tr>'
+    + '<th class="acct-check" style="text-align:center;width:36px">'
+    +   (POOL_SEPARATION_EFFECTIVE
+          ? '<input type="checkbox" id="acctSelAll" onchange="toggleAcctSelAll(this)" title="全选 / 全不选当前页">'
+          : '')
+    + '</th>'
     + '<th style="text-align:center;width:76px">版本</th>'
     + '<th style="text-align:left">账号</th>'
     + '<th style="text-align:center;width:84px">状态</th>'
@@ -12022,41 +12101,85 @@ async function toggleAccount(uid, enable, btn){
     if(btn) btn.disabled = false;
   }
 }
-function poolFilter(scope, btn){
+function poolFilter(scope){
   if(!POOL_SEPARATION_EFFECTIVE) return;
   POOL_FILTER = scope === 'media' ? 'media' : (scope === 'text' ? 'text' : 'all');
-  ['pfAll','pfText','pfMedia'].forEach(function(id){
-    const el = document.getElementById(id);
-    if(el) el.classList.toggle('active', el === btn);
-  });
+  const sel = document.getElementById('poolFilterSelect');
+  if(sel) sel.value = POOL_FILTER;
   ACCT_PAGE = 1;
   renderAccounts();
 }
 function applyPoolSeparationUi(effective){
+  const wasEffective = POOL_SEPARATION_EFFECTIVE;
   POOL_SEPARATION_EFFECTIVE = effective === true;
-  if(!POOL_SEPARATION_EFFECTIVE) POOL_FILTER = 'all';
+  if(!POOL_SEPARATION_EFFECTIVE){
+    POOL_FILTER = 'all';
+    ACCT_SELECTED.clear();
+  }
   const group = document.getElementById('poolToolsGroup');
   if(group) group.hidden = !POOL_SEPARATION_EFFECTIVE;
-  ['pfAll','pfText','pfMedia'].forEach(function(id){
-    const el = document.getElementById(id);
-    if(el) el.classList.toggle('active', id === 'pfAll' || POOL_FILTER === id.slice(2).toLowerCase());
+  const sel = document.getElementById('poolFilterSelect');
+  if(sel) sel.value = POOL_FILTER;
+  // 勾选列（表头全选框、行内复选框、.has-pool-sel 的列宽与吸附偏移）都在渲染时
+  // 按 POOL_SEPARATION_EFFECTIVE 决定，开关翻转后必须重画一次表格，否则会出现
+  // 「设置已开、表格还是旧形态」直到下一次轮询。
+  if(wasEffective !== POOL_SEPARATION_EFFECTIVE
+     && typeof renderAccounts === 'function' && window.ACCOUNTS){
+    renderAccounts();
+  }
+  updateBatchPoolBar();
+}
+// 勾选状态的真源是 ACCT_SELECTED（uid 集合），DOM 复选框只是它的投影：整表
+// 重画 / 翻页 / 排序后按集合回填，勾选不会因为一次轮询就丢。
+function acctSelUids(){
+  if(!POOL_SEPARATION_EFFECTIVE) return [];
+  const alive = new Set((window.ACCOUNTS || []).map(function(a){ return String(a.uid || ''); }));
+  return Array.from(ACCT_SELECTED).filter(function(uid){ return alive.has(uid); });
+}
+function toggleAcctSel(el){
+  if(!POOL_SEPARATION_EFFECTIVE || !el) return;
+  const uid = String(el.dataset.uid || '');
+  if(!uid) return;
+  if(el.checked) ACCT_SELECTED.add(uid); else ACCT_SELECTED.delete(uid);
+  updateBatchPoolBar();
+}
+// 表头全选框：作用于当前页已渲染的账号行。三态由 updateBatchPoolBar() 统一回填。
+function toggleAcctSelAll(box){
+  if(!POOL_SEPARATION_EFFECTIVE) return;
+  const on = !!(box && box.checked);
+  Array.from(document.querySelectorAll('#accounts .acct-sel')).forEach(function(el){
+    el.checked = on;
+    const uid = String(el.dataset.uid || '');
+    if(!uid) return;
+    if(on) ACCT_SELECTED.add(uid); else ACCT_SELECTED.delete(uid);
   });
   updateBatchPoolBar();
 }
-function acctSelUids(){
-  if(!POOL_SEPARATION_EFFECTIVE) return [];
-  return Array.from(document.querySelectorAll('#accounts .acct-sel:checked'))
-    .map(function(el){ return el.dataset.uid; })
-    .filter(Boolean);
-}
 function updateBatchPoolBar(){
+  const boxes = POOL_SEPARATION_EFFECTIVE
+    ? Array.from(document.querySelectorAll('#accounts .acct-sel'))
+    : [];
   const n = acctSelUids().length;
-  const label = document.getElementById('batchPoolCount');
-  if(label) label.textContent = n ? ('已选 ' + n + ' 个') : '未勾选';
   ['batchToMedia','batchToText'].forEach(function(id){
     const el = document.getElementById(id);
     if(el) el.disabled = !POOL_SEPARATION_EFFECTIVE || !n;
   });
+  const all = document.getElementById('acctSelAll');
+  if(all){
+    const pageOn = boxes.filter(function(el){ return el.checked; }).length;
+    all.checked = !!boxes.length && pageOn === boxes.length;
+    all.indeterminate = pageOn > 0 && pageOn < boxes.length;
+  }
+}
+// 移动端「批量操作 + 号池工具」折叠开关。桌面端 .tb-advanced 是 display:contents，
+// 这里加的 is-collapsed 不生效（见 CSS），所以两端口径一致：状态只存在 DOM 上，
+// 刷新页面回到默认收起。
+function toggleAcctAdvanced(btn){
+  const box = document.getElementById('acctAdvancedTools');
+  if(!box) return;
+  const willOpen = box.classList.contains('is-collapsed');
+  box.classList.toggle('is-collapsed', !willOpen);
+  if(btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
 }
 async function batchPoolScope(scope, btn){
   if(!POOL_SEPARATION_EFFECTIVE){
@@ -12070,6 +12193,7 @@ async function batchPoolScope(scope, btn){
     const r = await postJSON('/accounts/set-all', {uids: uids, poolScope: scope});
     toast('已把 ' + (r.moved == null ? uids.length : r.moved)
           + ' 个账号移入' + (scope === 'media' ? '媒体号池' : '文本号池'), 'ok');
+    ACCT_SELECTED.clear();
     await loadAccounts();
     updateBatchPoolBar();
   }catch(e){

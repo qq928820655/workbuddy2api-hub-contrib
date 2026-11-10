@@ -377,8 +377,8 @@ def run_checks(filter_name):
                 (() => {
                   const tr = document.querySelector('#accounts tbody tr');
                   const tds = tr ? tr.querySelectorAll('td') : [];
-                  if(tds.length < 8) return [];
-                  return [6,7,8].map(i => Math.round(tds[i-1].getBoundingClientRect().top));
+                  if(tds.length < 9) return [];
+                  return [7,8,9].map(i => Math.round(tds[i-1].getBoundingClientRect().top));
                 })()
                 """
             )
@@ -387,8 +387,8 @@ def run_checks(filter_name):
                 (() => {
                   const tr = document.querySelector('#accounts tbody tr');
                   const tds = tr ? tr.querySelectorAll('td') : [];
-                  if(tds.length < 8) return [];
-                  return [6,7,8].map(i => Math.round(tds[i-1].getBoundingClientRect().width));
+                  if(tds.length < 9) return [];
+                  return [7,8,9].map(i => Math.round(tds[i-1].getBoundingClientRect().width));
                 })()
                 """
             )

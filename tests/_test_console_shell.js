@@ -153,13 +153,39 @@ check(/id="poolToolsGroup"[^>]*\bhidden\b/.test(html),
   '号池工具组默认应隐藏');
 check(/function applyPoolSeparationUi\(effective\)/.test(script),
   '缺少号池工具组显隐与状态重置');
-check(/if\(!POOL_SEPARATION_EFFECTIVE\) POOL_FILTER = 'all'/.test(script),
+check(/if\(!POOL_SEPARATION_EFFECTIVE\)\{\s*POOL_FILTER = 'all';/.test(script),
   '关闭隔离时应清空号池筛选');
 check(/if\(POOL_SEPARATION_EFFECTIVE && POOL_FILTER !== 'all'\)/.test(script),
   '关闭隔离时 renderAccounts 不应按 poolScope 过滤');
 check(/POOL_SEPARATION_EFFECTIVE[\s\S]{0,180}acct-sel/.test(script)
       && /POOL_SEPARATION_EFFECTIVE[\s\S]{0,260}媒体号池/.test(script),
   '关闭隔离时不应渲染批量勾选框和号池徽章');
+
+// 号池筛选是一个三选下拉（默认「全部号池」），不再是三个互斥按钮；选中即生效。
+check(/<select id="poolFilterSelect"[^>]*onchange="poolFilter\(this\.value\)"/.test(html),
+  '号池筛选应是下拉框，选择后立即生效');
+check(/<option value="all">全部号池<\/option>\s*<option value="text">文本号池<\/option>\s*<option value="media">媒体号池<\/option>/.test(html),
+  '号池下拉应提供全部 / 文本 / 媒体三项，且默认第一项是全部号池');
+check(!/id="pfAll"/.test(html) && !/id="pfText"/.test(html) && !/id="pfMedia"/.test(html),
+  '旧的三个号池按钮应已移除');
+
+// 批量挪号池：按钮文案去掉「勾选」前缀，「未勾选」计数标签不再上屏。
+check(/>移入媒体池</.test(html) && />移入文本池</.test(html),
+  '批量按钮应叫「移入媒体池」「移入文本池」');
+check(!/勾选移入媒体池/.test(html) && !/勾选移回文本池/.test(html),
+  '旧按钮文案应已移除');
+check(!/id="batchPoolCount"/.test(html), '「未勾选」计数标签应已移除');
+
+// 勾选列：表头全选框 + 每行复选框；勾选状态存在 ACCT_SELECTED（整表重画不丢）。
+check(/id="acctSelAll"[^>]*onchange="toggleAcctSelAll\(this\)"/.test(html),
+  '表头缺少全选勾选框');
+check(/class="acct-sel" data-uid="' \+ uidAttr/.test(script),
+  '账号行缺少勾选列复选框');
+check(/let ACCT_SELECTED = new Set\(\)/.test(script),
+  '勾选状态应有独立集合，整表重画后不丢');
+check(/function toggleAcctSelAll\(box\)/.test(script)
+      && /function toggleAcctSel\(el\)/.test(script),
+  '缺少勾选 / 全选的状态回写函数');
 
 // ---- 3. 概览：用已有数据，不发新请求，也不冒充时间序列 ---------------
 

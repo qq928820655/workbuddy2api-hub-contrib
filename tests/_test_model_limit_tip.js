@@ -53,23 +53,25 @@ const fmtAt = e => { const d = new Date(e * 1000);
 // 表头列数是硬约定：改表头不同步这里，胶囊就会只跨一半、重新被切。
 // 表头由 renderAccounts() 用字符串拼出来，所以从那段源码里数，而不是整页数
 // （整页有 35 个 th，会把别的表一起算进来）。
-const theadSrc = script.match(/table class="data-cards account-cards"><thead><tr>'([\s\S]*?)<\/tr><\/thead>/);
+// 表头类名现在跟着号池隔离动态拼（account-cards / account-cards has-pool-sel），
+// 这里只锚住开头与 thead 结构，不再写死整串类名。
+const theadSrc = script.match(/table class="data-cards account-cards'[\s\S]{0,120}?<thead><tr>'([\s\S]*?)<\/tr><\/thead>/);
 check('抓到账号表的表头源码', !!theadSrc, 'renderAccounts 的表头条目变了？');
 const thCount = theadSrc ? (theadSrc[1].match(/<th /g) || []).length : -1;
-check('COOL_ROW_COLS 与表头列数一致（11）', api.COOL_ROW_COLS === 11, api.COOL_ROW_COLS);
-check('账号表确有 11 个 th', thCount === 11, thCount);
+check('COOL_ROW_COLS 与表头列数一致（12）', api.COOL_ROW_COLS === 12, api.COOL_ROW_COLS);
+check('账号表确有 12 个 th', thCount === 12, thCount);
 
 const coolHtml = api.coolRow({modelCooldowns: [
   {model: MODEL, expiresAt: until, cappedAt: capped},
 ]});
-check('冷却胶囊渲染成独立的一整行', /^<tr class="cool-row"><td colspan="11">/.test(coolHtml), coolHtml);
+check('冷却胶囊渲染成独立的一整行', /^<tr class="cool-row"><td colspan="12">/.test(coolHtml), coolHtml);
 check('这一行只装胶囊、不再带 data-label 装饰', !/data-label/.test(coolHtml), coolHtml);
 
 const limitHtml = api.limitRow({
   modelDailyTokenLimit: 200000000,
   modelDailyTokens: {[MODEL]: 201000000},
 });
-check('达限胶囊也渲染成独立的一整行', /^<tr class="cool-row"><td colspan="11">/.test(limitHtml), limitHtml);
+check('达限胶囊也渲染成独立的一整行', /^<tr class="cool-row"><td colspan="12">/.test(limitHtml), limitHtml);
 
 /* ---- 2. 可见文本本身完整（不再靠 title 兜底） ------------------------- */
 
@@ -160,7 +162,7 @@ const accountCell = rowHtml.match(/<td style="text-align:left" data-label="账�
 check('账号列里已无胶囊', accountCell && !/cool-pill/.test(accountCell[1]),
   accountCell && accountCell[1].slice(-120));
 check('账号行仍以 </tr> 收尾，新行紧跟其后',
-  /<\/td><\/tr><tr class="cool-row"><td colspan="11">/.test(rowHtml), rowHtml.slice(-260));
+  /<\/td><\/tr><tr class="cool-row"><td colspan="12">/.test(rowHtml), rowHtml.slice(-260));
 check('整段渲染只多出两行（冷却 + 达限），账号行本身仍是一行',
   (rowHtml.match(/<tr/g) || []).length === 3, (rowHtml.match(/<tr/g) || []).length);
 
