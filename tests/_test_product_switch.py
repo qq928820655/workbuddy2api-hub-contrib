@@ -107,6 +107,25 @@ class ProductSwitchTests(unittest.TestCase):
         self.assertEqual(len(payload["changed"]), 3)
         self.assertEqual(set(self.products().values()), {"vscode"})
 
+    def test_uids_switch_only_the_named_accounts(self):
+        """面板的「切换所有出站身份」在有勾选 / 有筛选时点名一批 uid。"""
+        status, payload = FakeRequest({"product": "cli",
+                                       "uids": ["intl-aaa-1", "cn-ccc-3"]}).call()
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(payload["changed"]), ["cn-ccc-3", "intl-aaa"])
+        self.assertEqual(self.products()["intl-bbb-2"], "workbuddy")
+
+    def test_an_empty_uid_list_switches_nothing(self):
+        status, payload = FakeRequest({"product": "cli", "uids": []}).call()
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["changed"], [])
+        self.assertEqual(set(self.products().values()), {"workbuddy"})
+
+    def test_non_list_uids_is_rejected(self):
+        status, _payload = FakeRequest({"product": "cli", "uids": "intl-aaa-1"}).call()
+        self.assertEqual(status, 400)
+        self.assertEqual(set(self.products().values()), {"workbuddy"})
+
     def test_a_single_uid_still_switches_one_account(self):
         """行内那三个按钮（WB / VSC / CLI）不能被批量分支抢走。"""
         status, _payload = FakeRequest({"product": "cli", "uid": "intl-bbb-2"}).call()

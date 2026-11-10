@@ -147,19 +147,14 @@ check(/html:not\(\[data-console-layout="on"\]\):not\(\[data-ui="next"\]\) \.cons
 check(!/html:not\(\[data-console-layout="on"\]\) \.console-filterbar\s*\{display:none!important\}/.test(html),
   '旧布局的筛选栏隐藏规则不应误伤新导航');
 
-// 号池控件只在隔离实际生效时出现；关闭时既不能露按钮，也不能让隐藏的
-// POOL_FILTER 继续过滤账号（与 #850 同一类问题）。
-check(/id="poolToolsGroup"[^>]*\bhidden\b/.test(html),
-  '号池工具组默认应隐藏');
-check(/function applyPoolSeparationUi\(effective\)/.test(script),
-  '缺少号池工具组显隐与状态重置');
-check(/if\(!POOL_SEPARATION_EFFECTIVE\)\{\s*POOL_FILTER = 'all';/.test(script),
-  '关闭隔离时应清空号池筛选');
-check(/if\(POOL_SEPARATION_EFFECTIVE && POOL_FILTER !== 'all'\)/.test(script),
-  '关闭隔离时 renderAccounts 不应按 poolScope 过滤');
-check(/POOL_SEPARATION_EFFECTIVE[\s\S]{0,180}acct-sel/.test(script)
-      && /POOL_SEPARATION_EFFECTIVE[\s\S]{0,260}媒体号池/.test(script),
-  '关闭隔离时不应渲染批量勾选框和号池徽章');
+// 号池筛选与「移入」按钮始终上屏：poolScope 是账号归属，隔离关着时只是不限
+// 制派发，不代表这个字段不可见 / 不可改。
+check(/function applyPoolSeparationUi\(\)/.test(script),
+  '缺少号池隔离状态的应用函数');
+check(/if\(POOL_FILTER !== 'all'\)\{\s*list = list\.filter\(a => String\(a\.poolScope \|\| 'text'\) === POOL_FILTER\);/.test(script),
+  'renderAccounts 应按号池筛选结果过滤');
+check(/if\(POOL_FILTER !== 'all'\)/.test(script),
+  '号池筛选不应依赖隔离开关');
 
 // 号池筛选是一个三选下拉（默认「全部号池」），不再是三个互斥按钮；选中即生效。
 check(/<select id="poolFilterSelect"[^>]*onchange="poolFilter\(this\.value\)"/.test(html),

@@ -24,8 +24,8 @@ const html = dashboardHtml();
 
 /* ---- 1. 结构：按钮与弹窗都在页面上 ------------------------------------- */
 
-assert.ok(/onclick="testAccounts\(this\)"[^>]*>一键测试</.test(html),
-  '工具栏要有一个跑 testAccounts(this) 的「一键测试」按钮');
+assert.ok(/onclick="testAccounts\(this\)"[^>]*>测试</.test(html),
+  '工具栏要有一个跑 testAccounts(this) 的「测试」按钮');
 assert.ok(/id="testAllModal"/.test(html), '结果弹窗 #testAllModal 必须在页面上');
 assert.ok(/id="testAllBody"/.test(html), '结果容器 #testAllBody 必须在页面上');
 assert.ok(/onclick="testAccounts\(null\)"[^>]*>重新测试</.test(html),
@@ -35,13 +35,18 @@ assert.ok(/onclick="closeTestAll\(\)"/.test(html), '弹窗要能关掉');
 /* ---- 2. 行为：页面脚本 + 假 DOM + 假 fetch ----------------------------- */
 
 let reply = null;
+// 账号列表的桩：测试结束后面板会回读 /accounts，把 ACCOUNTS 换成这份数据。
+// 批量测试的作用范围是「勾选 / 当前筛选结果」，所以这份数据必须一直在。
+let accountsStub = [];
 const posts = [];
 const toasts = [];
 
 const page = loadDashboard({
   fetch: (url, options) => {
     posts.push({url: String(url), body: options && options.body});
-    const body = typeof reply === 'function' ? reply(String(url)) : (reply || {});
+    let body;
+    if (/^\/accounts\?/.test(String(url))) body = {accounts: accountsStub};
+    else body = typeof reply === 'function' ? reply(String(url)) : (reply || {});
     return Promise.resolve({
       status: 200, ok: true,
       json: () => Promise.resolve(body),
@@ -82,8 +87,15 @@ const NET_DOWN = {realm: 'cn', url: 'https://www.workbuddy.cn', host: 'www.workb
        status: 429, reply: '', error: 'HTTP 429: 频率限制', network: false, fails: 2},
     ],
   };
-  const btn = {disabled: false, textContent: '一键测试'};
+  const btn = {disabled: false, textContent: '测试'};
   page.VIEW_REALM = 'cn';
+  // 作用范围由勾选 / 当前筛选结果决定：这里放两个国内版账号，未勾选即「当前筛选
+  // 结果的全部账号」。
+  accountsStub = [
+    {uid: 'cn000001-0000', nickname: '好账号', realm: 'cn', enabled: true},
+    {uid: 'cn000002-0000', nickname: '坏账号', realm: 'cn', enabled: true},
+  ];
+  page.ACCOUNTS = accountsStub;
   posts.length = 0;
   toasts.length = 0;
   await page.testAccounts(btn);
@@ -94,6 +106,8 @@ const NET_DOWN = {realm: 'cn', url: 'https://www.workbuddy.cn', host: 'www.workb
   const sent = JSON.parse(testPosts[0].body || '{}');
   check('带上当前视图的 realm', sent.realm === 'cn', JSON.stringify(sent));
   check('不传 uid（传了就退化成单账号测试）', sent.uid === undefined, JSON.stringify(sent));
+  check('把目标 uid 列表交给后端',
+    Array.isArray(sent.uids) && sent.uids.length === 2, JSON.stringify(sent));
   check('未选分组时不传 group', sent.group === undefined, JSON.stringify(sent));
   check('弹窗被打开', modalShown() === true);
   const shown = bodyHtml();
@@ -106,19 +120,27 @@ const NET_DOWN = {realm: 'cn', url: 'https://www.workbuddy.cn', host: 'www.workb
     shown.slice(0, 400));
   check('失败的行给出连续失败次数（离熔断还有多远）', shown.includes('连续失败 2 次'),
     shown.slice(0, 400));
-  check('按钮复位', btn.disabled === false && btn.textContent === '一键测试', btn.textContent);
-  check('toast 报出通过数', toasts.some(t => /一键测试: 1\/2/.test(t.msg)),
+  check('按钮复位', btn.disabled === false && btn.textContent === '测试', btn.textContent);
+  check('toast 报出通过数', toasts.some(t => /测试: 1\/2/.test(t.msg)),
     JSON.stringify(toasts));
 
-  // 2a2. 选中分组时，一键测试只作用于该分组
+  // 2a2. 选中分组时，一键测试只作用于该分组（分组在客户端按 ACCOUNT_FILTERS
+  // 收敛成 uid 列表，服务端只认点名）。
   // ACCOUNT_FILTERS is a top-level const, so it is intentionally not exposed
   // as a window property; evaluate inside the page's own VM context.
+  accountsStub = [
+    {uid: 'cn000001-0000', nickname: '好账号', realm: 'cn', enabled: true, group: 'Team A'},
+    {uid: 'cn000003-0000', nickname: '别组账号', realm: 'cn', enabled: true, group: 'Team B'},
+  ];
+  page.ACCOUNTS = accountsStub;
   vm.runInContext("ACCOUNT_FILTERS.group = 'Team A'", page);
   posts.length = 0;
   await page.testAccounts(null);
   const grouped = JSON.parse(
     posts.filter(p => p.url === '/accounts/test')[0].body || '{}');
-  check('选中分组时带上 group', grouped.group === 'Team A', JSON.stringify(grouped));
+  check('选中分组时只测该分组的账号',
+    Array.isArray(grouped.uids) && grouped.uids.length === 1
+    && grouped.uids[0] === 'cn000001-0000', JSON.stringify(grouped));
   vm.runInContext("ACCOUNT_FILTERS.group = ''", page);
 
   // 2b. 本机断网：网络行变红、失败行标成「本机网络」而不是账号失败

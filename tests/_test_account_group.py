@@ -179,6 +179,82 @@ class GroupActionTests(unittest.TestCase):
                              ["g-b"])
             self.assertEqual(request.reply["summary"]["tested"], 1)
 
+    def test_route_batch_actions_target_named_uids(self):
+        """面板的批量按钮在有勾选 / 有筛选时点名 uid 列表，而不是整池。"""
+        class Request(object):
+            _route_accounts_refresh = wb_proxy.Handler._route_accounts_refresh
+            _route_accounts_credits_fetch = (
+                wb_proxy.Handler._route_accounts_credits_fetch)
+            _route_accounts_test_all = wb_proxy.Handler._route_accounts_test_all
+            _route_accounts_set_all = wb_proxy.Handler._route_accounts_set_all
+
+            def __init__(self):
+                self.status = None
+                self.reply = None
+
+            def _json_panel(self, status, payload):
+                self.status, self.reply = status, payload
+                return status, payload
+
+            def _error(self, status, message, kind=""):
+                self.status, self.reply = status, message
+                return status, message
+
+        seen = []
+        with mock.patch.object(wb_proxy, "POOL", self.pool), \
+                mock.patch.object(wb_proxy, "ACCOUNTS_DIR", self.directory), \
+                mock.patch.object(wb_proxy, "account_views", lambda: []), \
+                mock.patch.object(wb_proxy, "_credits_sweep",
+                                  lambda targets, paced: seen.append(
+                                      ("credits", [a.uid for a in targets])) or []), \
+                mock.patch.object(wb_proxy, "_credits_sweep_begin",
+                                  lambda: True), \
+                mock.patch.object(wb_proxy, "_credits_sweep_end", lambda: None), \
+                mock.patch.object(wb_proxy, "probe_account",
+                                  lambda account, model: seen.append(
+                                      ("test", account.uid)) or {
+                                          "ok": True, "uid": account.uid,
+                                          "model": model, "elapsed_ms": 1,
+                                          "reply": "ok", "network": False,
+                                      }), \
+                mock.patch.object(wb_proxy, "probe_local_network",
+                                  lambda realm: {"ok": True}), \
+                mock.patch.object(wb_proxy, "maybe_auto_assign_slots",
+                                  lambda _why: None), \
+                mock.patch.object(wb_proxy, "CURRENT_REALM", "intl"):
+            for account in self.pool.accounts:
+                account.refresh = lambda: True
+                account.save = lambda _directory: None
+
+            request = Request()
+            request._route_accounts_refresh({"uids": ["g-a", "g-c"]})
+            self.assertEqual(request.status, 200)
+            self.assertEqual([row["uid"] for row in request.reply["results"]],
+                             ["g-a", "g-c"])
+
+            request = Request()
+            request._route_accounts_credits_fetch({"uids": ["g-c"]})
+            self.assertEqual(request.status, 200)
+            self.assertEqual(seen[-1], ("credits", ["g-c"]))
+
+            # 停用的号被点名也要测：勾选是明确的选择。
+            request = Request()
+            request._route_accounts_test_all({"realm": "intl", "uids": ["g-a"]})
+            self.assertEqual(request.status, 200)
+            self.assertEqual([row["uid"] for row in request.reply["results"]],
+                             ["g-a"])
+
+            request = Request()
+            request._route_accounts_set_all({"enabled": False, "uids": ["g-c"]})
+            self.assertEqual(request.status, 200)
+            self.assertFalse(self.pool.get("g-c").enabled)
+            self.assertTrue(self.pool.get("g-b").enabled)
+
+            # 空列表 = 什么都不做，不退化成整池。
+            request = Request()
+            request._route_accounts_set_all({"enabled": False, "uids": []})
+            self.assertEqual(request.status, 400)
+
     def test_import_can_force_a_group(self):
         token = ("eyJhbGciOiJub25lIn0."
                  "eyJzdWIiOiJpbXBvcnRlZCIsImV4cCI6NDEwMjQ0NDgwMH0.")
@@ -204,7 +280,8 @@ class DashboardGroupWiringTests(unittest.TestCase):
             "id=\"importGroup\"",
             "editKeyAccountGroup_",
             "addKeyAccountsFromGroup",
-            "payload.group = ACCOUNT_FILTERS.group",
+            "acctScopeUids",
+            "uids: scope.uids",
         ):
             self.assertIn(marker, html)
 

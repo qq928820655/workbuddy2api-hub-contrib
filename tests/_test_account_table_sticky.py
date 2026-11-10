@@ -69,7 +69,7 @@ def fixture():
         f"<style>{STYLES}main{{max-width:none!important;padding:0!important}}"
         "#wrap{margin-left:0!important}</style></head><body><main>"
         '<div id="wrap" class="table-wrap" style="width:1073px;margin-left:281px">'
-        '<table class="data-cards account-cards has-pool-sel"><thead><tr>'
+        '<table class="data-cards account-cards"><thead><tr>'
         + "".join(headers)
         + "</tr></thead><tbody>"
         + rows

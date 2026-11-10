@@ -4939,6 +4939,29 @@ class AccountPool(object):
                 account.save(self.dir)
         self.apply_proxy_slots()
 
+    def set_enabled_many(self, uids, enabled):
+        """Enable/disable exactly the named accounts; returns the uids changed.
+
+        The panel's enable/disable buttons target the ticked rows when there are
+        any, otherwise the current filter result — both arrive as an explicit
+        uid list. Unlike ``set_group_enabled`` this does not depend on a group
+        being set, and an empty list changes nothing.
+        """
+        changed = []
+        with self._lock:
+            wanted = set(str(u) for u in uids if u)
+            for account in self.accounts:
+                if account.uid not in wanted:
+                    continue
+                account.enabled = bool(enabled)
+                account.tasks_enabled = bool(enabled)
+                if enabled:
+                    account.clear_error()
+                account.save(self.dir)
+                changed.append(account.uid)
+        self.apply_proxy_slots()
+        return changed
+
     def set_group_enabled(self, group, enabled):
         """Enable/disable exactly the accounts carrying one non-empty group."""
         group = str(group or "").strip()

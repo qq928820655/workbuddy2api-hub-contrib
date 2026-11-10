@@ -53,9 +53,8 @@ const fmtAt = e => { const d = new Date(e * 1000);
 // 表头列数是硬约定：改表头不同步这里，胶囊就会只跨一半、重新被切。
 // 表头由 renderAccounts() 用字符串拼出来，所以从那段源码里数，而不是整页数
 // （整页有 35 个 th，会把别的表一起算进来）。
-// 表头类名现在跟着号池隔离动态拼（account-cards / account-cards has-pool-sel），
-// 这里只锚住开头与 thead 结构，不再写死整串类名。
-const theadSrc = script.match(/table class="data-cards account-cards'[\s\S]{0,120}?<thead><tr>'([\s\S]*?)<\/tr><\/thead>/);
+// 表头由字符串拼出，这里只锚住 table 开头与 thead 结构，不写死后面的属性。
+const theadSrc = script.match(/table class="data-cards account-cards[^"]*"[\s\S]{0,160}?<thead><tr>'([\s\S]*?)<\/tr><\/thead>/);
 check('抓到账号表的表头源码', !!theadSrc, 'renderAccounts 的表头条目变了？');
 const thCount = theadSrc ? (theadSrc[1].match(/<th /g) || []).length : -1;
 check('COOL_ROW_COLS 与表头列数一致（12）', api.COOL_ROW_COLS === 12, api.COOL_ROW_COLS);

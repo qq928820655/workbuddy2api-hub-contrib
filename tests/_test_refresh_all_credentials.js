@@ -1,10 +1,10 @@
-/* 一键刷新凭证：账号工具栏的批量按钮，等价于对每个账号点一次「刷新凭证」。
+/* 刷新凭证：账号工具栏的批量按钮，等价于对每个账号点一次「刷新凭证」。
  *
- * 后端 /accounts/refresh 早先就支持不带 uid 时刷新整池，但看板上只有单账号的
- * 按钮，refreshAccounts() 是没人调用的死代码——issue #167 要的就是把它接到一个
- * 批量入口上。这里把 dashboard.html 里的这段逻辑原样抽出来跑一遍，钉住：只发一
- * 次不带 uid 的请求、按成功数回报、失败时把错误和条数一并说出来、按钮跑动期间
- * 禁用并复位，以及按钮和英文词条确实在页面上。
+ * 作用范围由勾选决定：有勾选只刷新勾选的账号，没有勾选刷新当前筛选结果的全部
+ * 账号（acctScopeUids 统一算，见 _test_account_scope.js）。这里把 dashboard.html
+ * 里 refreshAccounts 这段逻辑原样抽出来跑一遍，钉住：只发一次请求、把目标 uid
+ * 列表交给后端、按成功数回报、失败时把错误和条数一并说出来、按钮跑动期间禁用
+ * 并复位，以及按钮和英文词条确实在页面上。
  *
  * Run with Node: node tests/_test_refresh_all_credentials.js
  */
@@ -21,7 +21,7 @@ assert.ok(start > 0 && end > start,
 
 const source = html.slice(start, end);
 
-function makeHarness(response, group) {
+function makeHarness(response, scope) {
   const calls = { posts: [], toasts: [], loads: 0 };
   const postJSON = async (url, body) => {
     calls.posts.push({ url, body });
@@ -30,35 +30,35 @@ function makeHarness(response, group) {
   };
   const toast = (msg, kind) => calls.toasts.push({ msg, kind });
   const loadAccounts = async () => { calls.loads++; };
-  const accountFilters = { query: '', status: '', group: group || '' };
-  const factory = new Function('postJSON', 'toast', 'loadAccounts', 'ACCOUNT_FILTERS',
+  const acctScopeUids = () => scope || {uids: ['u1', 'u2'], selected: false};
+  const factory = new Function('postJSON', 'toast', 'loadAccounts', 'acctScopeUids',
     source + '\nreturn refreshAccounts;');
-  return { fn: factory(postJSON, toast, loadAccounts, accountFilters), calls };
+  return { fn: factory(postJSON, toast, loadAccounts, acctScopeUids), calls };
 }
 
 function makeButton() {
-  return { disabled: false, textContent: '一键刷新凭证' };
+  return { disabled: false, textContent: '刷新凭证' };
 }
 
 (async () => {
-  // 1) 批量刷新只发一次请求，且不带 uid（后端据此刷新整池）
+  // 1) 批量刷新只发一次请求，并把目标 uid 列表交给后端
   {
-    const h = makeHarness({ results: [{ uid: 'a', ok: true }, { uid: 'b', ok: true }] });
+    const h = makeHarness({ results: [{ uid: 'u1', ok: true }, { uid: 'u2', ok: true }] });
     const btn = makeButton();
     await h.fn(btn);
     assert.strictEqual(h.calls.posts.length, 1, '批量刷新应只发一次请求');
     assert.strictEqual(h.calls.posts[0].url, '/accounts/refresh');
-    assert.deepStrictEqual(h.calls.posts[0].body, {},
-      '不带 uid 才会刷新所有账号，带上 uid 就退化成单账号刷新了');
+    assert.deepStrictEqual(h.calls.posts[0].body, { uids: ['u1', 'u2'] },
+      '应把作用范围（勾选 / 当前筛选结果）的 uid 列表交给后端');
   }
 
-  // 1b) 选中分组时，批量刷新只作用于该分组
+  // 1b) 有勾选时只刷新勾选的那几个
   {
-    const h = makeHarness({ results: [{ uid: 'a', ok: true }] }, 'Team A');
+    const h = makeHarness({ results: [{ uid: 'u1', ok: true }] },
+                          {uids: ['u1'], selected: true});
     await h.fn(makeButton());
-    assert.strictEqual(h.calls.posts.length, 1);
-    assert.deepStrictEqual(h.calls.posts[0].body, { group: 'Team A' },
-      '选中分组后应把 group 一并交给后端');
+    assert.deepStrictEqual(h.calls.posts[0].body, { uids: ['u1'] },
+      '有勾选时只应提交勾选的账号');
   }
 
   // 2) 全部成功：报「刷新完成: 2/2」，用 ok 配色
@@ -117,10 +117,19 @@ function makeButton() {
     assert.strictEqual(btn.textContent, '刷新中...');
     await pending;
     assert.strictEqual(btn.disabled, false);
-    assert.strictEqual(btn.textContent, '一键刷新凭证');
+    assert.strictEqual(btn.textContent, '刷新凭证');
   }
 
-  // 8) 没传按钮也不能炸（按钮是可选的）
+  // 8) 没有目标账号时不发请求，只提示
+  {
+    const h = makeHarness({ results: [] }, {uids: [], selected: false});
+    await h.fn(makeButton());
+    assert.strictEqual(h.calls.posts.length, 0, '没有目标账号时不该发请求');
+    assert.ok(h.calls.toasts.some(t => t.msg.includes('当前没有可刷新的账号')),
+      JSON.stringify(h.calls.toasts));
+  }
+
+  // 8b) 没传按钮也不能炸（按钮是可选的）
   {
     const h = makeHarness({ results: [{ uid: 'a', ok: true }] });
     await h.fn();
@@ -132,15 +141,15 @@ function makeButton() {
     const bar = html.slice(html.indexOf('<div class="toolbar">'),
                            html.indexOf('<div id="accounts">'));
     assert.ok(/onclick="refreshAccounts\(this\)"/.test(bar),
-      '账号工具栏里找不到一键刷新凭证按钮');
-    assert.ok(/>一键刷新凭证</.test(bar), '按钮文案应为「一键刷新凭证」');
+      '账号工具栏里找不到刷新凭证按钮');
+    assert.ok(/>刷新凭证</.test(bar), '按钮文案应为「刷新凭证」');
   }
 
   // 10) 英文词条齐全，切到 EN 时按钮不会是中文
   {
-    assert.ok(/'一键刷新凭证':\s*'Refresh all tokens'/.test(html),
-      'DICT 里缺少「一键刷新凭证」的英文词条');
+    assert.ok(/'刷新凭证':\s*'Refresh token'/.test(html),
+      'DICT 里缺少「刷新凭证」的英文词条');
   }
 
-  console.log('ok - refresh all credentials (10 checks)');
+  console.log('ok - refresh credentials (11 checks)');
 })();

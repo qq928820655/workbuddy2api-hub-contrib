@@ -124,16 +124,16 @@ assert.ok(/if\(tab === 'accounts' && !_accountsSeparateTab\) tab = window\.__NEX
 
 /* ---- 1c. 一键切换所有出站身份 --------------------------------------- */
 
-// 按钮在账号工具栏里，紧跟「一键分配代理」
+// 按钮在账号工具栏里，紧跟「分配代理」
 assert.ok(/id="btnProductAll"[^>]*onclick="cycleAllProducts\(this\)"/.test(html),
-  '账号工具栏缺少「一键切换所有出站身份」按钮');
-assert.ok(/一键分配代理<\/button>\s*<button class="sec" id="btnProductAll"/.test(html),
-  '按钮应排在「一键分配代理」之后');
+  '账号工具栏缺少「切换所有出站身份」按钮');
+assert.ok(/分配代理<\/button>\s*<button class="sec" id="btnProductAll"/.test(html),
+  '按钮应排在「分配代理」之后');
 // 当前身分要有个能定位的节点，不能只留一段裸文本（否则 JS 改不动它）
 assert.ok(html.includes('<span id="productAllLabel">'), '按钮上的当前身分缺少可定位节点');
-// 批量靠「不带 uid」：带上 uid 就退化成单账号切换
-assert.ok(/postJSON\('\/accounts\/product', \{product: next\}\)/.test(script),
-  '批量切换只应提交 product，不能带 uid');
+// 批量作用范围：有勾选带勾选的 uid，没有勾选带当前筛选结果的 uid
+assert.ok(/postJSON\('\/accounts\/product', \{product: next, uids: scope\.list\.map\(a => a\.uid\)\}\)/.test(script),
+  '批量切换应提交 product 与目标 uid 列表');
 // 身分取值与轮转顺序必须与服务端 wb_identity.VALID_PRODUCTS 一致
 assert.ok(/PRODUCT_ORDER = \['workbuddy', 'vscode', 'cli'\]/.test(script),
   '轮转顺序应与服务端身分取值一致');
@@ -141,11 +141,13 @@ assert.ok(/PRODUCT_ORDER = \['workbuddy', 'vscode', 'cli'\]/.test(script),
 assert.ok(/cur \? PRODUCT_SHORT\[cur\] : '混合'/.test(script),
   '身分不一致时应显示「混合」');
 // 英文词条齐全，否则切到 EN 时这一块是中文
-for(const [zh, en] of [['一键切换所有出站身份：', 'Switch all outbound identities: '],
+for(const [zh, en] of [['切换所有出站身份：', 'Switch all outbound identities: '],
                        ['混合', 'mixed'],
-                       ['将把全部账号的出站身份切换为 ', 'Switch the outbound identity of ALL accounts to '],
-                       ['？（含另一个版本）', '? (including the other version)'],
-                       ['已把全部账号的出站身份切换为 ', 'Switched the outbound identity of ALL accounts to ']]){
+                       ['将把勾选的 ', 'Switch the outbound identity of the selected '],
+                       ['将把当前筛选的 ', 'Switch the outbound identity of the currently filtered '],
+                       ['已把勾选的 ', 'Switched the outbound identity of the selected '],
+                       ['已把当前筛选的 ', 'Switched the outbound identity of the currently filtered '],
+                       ['的出站身份切换为 ', ' to ']]){
   assert.ok(html.includes("'" + zh + "': '" + en + "'"),
     'DICT 里缺少「' + zh + '」的英文词条');
 }

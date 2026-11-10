@@ -8,22 +8,16 @@ const script = dashboardScript();
 assert.ok(/\.cool-list\{display:flex;flex-direction:column/.test(html), '账号告警应纵向排列');
 assert.ok(/table\.account-cards td\[data-label="账号"\] \.cool-pill\{display:block;width:100%/.test(html), '告警 pill 应在账号列内收敛');
 assert.ok(/\.acct-actions-row\{flex-wrap:nowrap;max-width:none\}/.test(html), '桌面操作区应保持原来的两行紧凑布局');
-assert.ok(/table\.account-cards\{table-layout:fixed;min-width:1432px\}/.test(html), '桌面账号表应使用固定布局');
-assert.ok(/table\.account-cards\.has-pool-sel\{min-width:1468px\}/.test(html),
-  '开号池隔离时多一列勾选列，表宽应加宽 36px');
-// 关隔离时勾选列是空单元格（display:none），版本列贴左边；开隔离时勾选列在最左，
-// 版本 / 账号依次右移 36px。两种情形都要钉住，否则滚到最右会露出白块。
-assert.ok(/table\.account-cards th:nth-child\(2\),\s*table\.account-cards tbody tr:not\(\.cool-row\) td:nth-child\(2\)\{[^}]*position:sticky;left:0/.test(html),
-  '关隔离时版本列应固定在左侧');
-assert.ok(/table\.account-cards th:nth-child\(3\),\s*table\.account-cards tbody tr:not\(\.cool-row\) td:nth-child\(3\)\{[^}]*position:sticky;left:76px/.test(html),
-  '关隔离时账号列应固定在版本列右侧');
-assert.ok(/table\.account-cards\.has-pool-sel th:nth-child\(1\),\s*table\.account-cards\.has-pool-sel tbody tr:not\(\.cool-row\) td:nth-child\(1\)\{[^}]*position:sticky;left:0/.test(html),
-  '开隔离时勾选列应固定在左侧');
-assert.ok(/table\.account-cards\.has-pool-sel th:nth-child\(2\),\s*table\.account-cards\.has-pool-sel tbody tr:not\(\.cool-row\) td:nth-child\(2\)\{left:36px\}/.test(html),
-  '开隔离时版本列应固定在勾选列右侧');
-assert.ok(/table\.account-cards\.has-pool-sel th:nth-child\(3\),\s*table\.account-cards\.has-pool-sel tbody tr:not\(\.cool-row\) td:nth-child\(3\)\{left:112px\}/.test(html),
-  '开隔离时账号列应固定在版本列右侧');
-assert.ok(/table\.account-cards tbody tr:not\(\.cool-row\):hover td:nth-child\(2\),\s*table\.account-cards tbody tr:not\(\.cool-row\):hover td:nth-child\(3\)\{background:var\(--panel2\)\}/.test(html),
+assert.ok(/table\.account-cards\{table-layout:fixed;min-width:1468px\}/.test(html),
+  '桌面账号表应使用固定布局（含 36px 勾选列）');
+// 勾选列始终渲染，所以「勾选 / 版本 / 账号」三列常驻吸附，偏移固定为 0 / 36 / 112。
+assert.ok(/table\.account-cards th:nth-child\(1\),\s*table\.account-cards tbody tr:not\(\.cool-row\) td:nth-child\(1\)\{[^}]*position:sticky;left:0/.test(html),
+  '勾选列应固定在左侧');
+assert.ok(/table\.account-cards th:nth-child\(2\),\s*table\.account-cards tbody tr:not\(\.cool-row\) td:nth-child\(2\)\{[^}]*position:sticky;left:36px/.test(html),
+  '版本列应固定在勾选列右侧');
+assert.ok(/table\.account-cards th:nth-child\(3\),\s*table\.account-cards tbody tr:not\(\.cool-row\) td:nth-child\(3\)\{[^}]*position:sticky;left:112px/.test(html),
+  '账号列应固定在版本列右侧');
+assert.ok(/table\.account-cards tbody tr:not\(\.cool-row\):hover td:nth-child\(1\),\s*table\.account-cards tbody tr:not\(\.cool-row\):hover td:nth-child\(2\),\s*table\.account-cards tbody tr:not\(\.cool-row\):hover td:nth-child\(3\)\{background:var\(--panel2\)\}/.test(html),
   '左侧固定列悬停时应跟随行背景，不能露出白块');
 assert.ok(/td\.acct-actions\{white-space:normal;min-width:264px;width:264px;position:sticky/.test(html), '操作列应固定在可视区域右侧');
 assert.ok(/@media \(max-width:640px\)[\s\S]*?td\.acct-actions\{position:static/.test(html), '移动端应取消操作列 sticky');
