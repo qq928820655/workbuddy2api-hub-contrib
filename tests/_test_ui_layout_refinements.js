@@ -41,4 +41,26 @@ assert.ok(/#pageAnalytics \.maingrid\{[^}]*align-items:stretch\}/.test(html), '�
 assert.ok(/#modelsTable\{table-layout:fixed\}/.test(html), '网关模型清单应固定布局占满宽度');
 assert.ok(/#modelsTable th,#modelsTable td\{white-space:nowrap;overflow:hidden;text-overflow:ellipsis\}/.test(html), '模型清单单元格不应换行');
 
+// 「网关模型清单」标题行：标题与「(共 N 个)·已选 M」+ 批量按钮分两段。
+// 宽屏同排，窄屏计数与按钮整段换到第二行（否则第一行显示到一半就折行很难看）。
+assert.ok(html.includes('class="models-head-title"') && html.includes('class="models-head-tail"'),
+  '模型清单标题应拆成 title / tail 两段');
+assert.ok(/\.models-head\{display:flex;align-items:center;gap:10px;flex-wrap:wrap\}/.test(html),
+  '标题行应可换行');
+assert.ok(/@media \(max-width:640px\)\{[\s\S]{0,220}?\.models-head-tail\{margin-left:0;flex-basis:100%/.test(html),
+  '窄屏应把计数与批量按钮整段推到第二行');
+// 顺序：title 在前、tail 在后，窄屏换行时计数与按钮整体落到标题下面一行。
+assert.ok(html.indexOf('models-head-title') < html.indexOf('models-head-tail'),
+  '标题段应先于计数/按钮段');
+
+// 新壳页面内二级导航吸顶：滚动时一直可点，不用回顶部换区块。
+assert.ok(/html\[data-ui="next"\] \.main-page\.page-nav-on > \.page-sidebar\{[^}]*position:sticky!important;top:var\(--next-nav-top,68px\)!important/.test(html),
+  '新壳二级导航应吸顶在顶栏下沿');
+assert.ok(/html\[data-ui="next"\] \.page-sidebar\{top:var\(--next-nav-top,60px\)!important\}/.test(html),
+  '窄屏吸顶导航 top 应跟随顶栏高度变量，不能写死 70px');
+assert.ok(script.includes("setProperty('--next-nav-top'"),
+  'syncPageNavOffset 应写入 --next-nav-top');
+assert.ok(script.includes('function currentTopbarHeight()'),
+  '应有 currentTopbarHeight() 统一量顶栏高度');
+
 console.log('_test_ui_layout_refinements.js: all assertions passed');

@@ -188,7 +188,7 @@ const api = new Function(script + `
   return { initPageNav, pageNavSections, pageNavLabel, pageNavAnchorId, pageNavSignature,
            pageNavSpy, restorePageNavHash, scrollToPageSection, switchMainTab,
            applyPageNavCollapse, togglePageNavCollapse, pageNavCollapsedPref,
-           PAGE_NAV_COLLAPSE_KEY };`)();
+           currentTopbarHeight, PAGE_NAV_COLLAPSE_KEY };`)();
 
 /* ---- 造页面的小工具 ---- */
 function sectionEl(label, opts){
@@ -399,8 +399,20 @@ window.location.hash = '';
 global.__scroll = null;
 navItems(spyPage)[1].listeners.click[0]();
 assert.strictEqual(global.__url, 'http://panel/#' + spySections[1].id, '点击导航项要把锚点写进 URL');
+// 经典布局：让开吸顶 header（+14px 缝）
+window.__NEXT_UI__ = false;
+navItems(spyPage)[1].listeners.click[0]();
 assert.ok(global.__scroll && global.__scroll.top === spySections[1].rectTop - (header.offsetHeight + 14),
-  '要让开吸顶 header 的高度，实际 ' + (global.__scroll && global.__scroll.top));
+  '经典布局要让开吸顶 header 的高度，实际 ' + (global.__scroll && global.__scroll.top));
+// 新壳：二级导航是顶栏下方横向吸顶的一条胶囊行，跳转要让开「顶栏 + 胶囊条」两段
+window.__NEXT_UI__ = true;
+navItems(spyPage)[1].listeners.click[0]();
+const spyNavBar = spyPage.querySelector('.page-sidebar');
+const expectedNext = spySections[1].rectTop
+  - (api.currentTopbarHeight() + spyNavBar.offsetHeight + 12);
+assert.ok(global.__scroll && global.__scroll.top === expectedNext,
+  '新壳要让开「顶栏 + 吸顶胶囊条」的高度，实际 ' + (global.__scroll && global.__scroll.top)
+  + '，期望 ' + expectedNext);
 
 /* ---- 9. 切标签页时按该页的区块重建 ---- */
 const btnGateway = new El('button'); btnGateway.id = 'btnNavGateway';

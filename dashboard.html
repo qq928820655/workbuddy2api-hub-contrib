@@ -223,6 +223,17 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 #modelsTable .model-pick{width:14px;height:14px;margin:0;flex-shrink:0;cursor:pointer}
 #modelsTable td.model-id-cell label{display:inline-flex;align-items:center;gap:7px;max-width:100%;cursor:pointer}
 #modelsTable td.model-id-cell b{overflow:hidden;text-overflow:ellipsis}
+/* 「网关模型清单」标题行：标题与「(共 N 个)·已选 M」+ 三个批量按钮分成两段。
+   宽屏两段同排（标题左、计数与按钮右）；窄屏让计数与按钮整段换到第二行，
+   避免标题后挤到一半再折行。 */
+.models-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.models-head-title{display:inline-flex;align-items:baseline;gap:6px;min-width:0}
+.models-head-tail{display:inline-flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap}
+@media (max-width:640px){
+  .models-head{align-items:flex-start;gap:6px}
+  /* 计数与批量按钮整段落到第二行：标题独占第一行，两段都不再中途折行。 */
+  .models-head-tail{margin-left:0;flex-basis:100%;gap:8px}
+}
 th,td{text-align:right;padding:9px 12px;border-bottom:1px solid var(--line);
   font-variant-numeric:tabular-nums;vertical-align:middle}
 th{color:var(--dim);font-weight:600;font-size:12px;white-space:nowrap;background:var(--panel2)}
@@ -5166,15 +5177,19 @@ html[data-ui="next"] main label{color:var(--dim)}
 html[data-ui="next"] main code,
 html[data-ui="next"] main pre{background:var(--panel2);border:1px solid var(--line);border-radius:7px}
 
-/* 页面内二级导航：新壳改成顶部的横向胶囊条，不再占一列 */
+/* 页面内二级导航：新壳改成顶部的横向胶囊条，不再占一列。
+   胶囊条吸顶在顶栏下沿（top 由 syncSectionSticky 按顶栏实际高度写入
+   --next-nav-top），滚动时一直可点，不用回顶部才能换区块。背景用页面底色
+   盖住滚上来的内容；z-index 压在区块标题吸顶（4/5）之上、顶栏（30）之下。 */
 html[data-ui="next"] .main-page.page-nav-on.active{display:block!important}
 html[data-ui="next"] .main-page.page-nav-on > *{grid-column:auto!important}
 html[data-ui="next"] .main-page.page-nav-on > .page-sidebar{
-  position:static!important;display:flex!important;align-items:center!important;gap:6px!important;
+  position:sticky!important;top:var(--next-nav-top,68px)!important;z-index:20!important;
+  display:flex!important;align-items:center!important;gap:6px!important;
   flex-wrap:nowrap!important;overflow-x:auto!important;max-height:none!important;
   padding:0 0 10px!important;margin:0 0 14px!important;
-  background:transparent!important;border:0!important;border-bottom:1px solid var(--line)!important;
-  box-shadow:none!important;top:auto!important;
+  background:var(--bg)!important;border:0!important;border-bottom:1px solid var(--line)!important;
+  box-shadow:none!important;
 }
 html[data-ui="next"] .page-sidebar-head,
 html[data-ui="next"] .page-sidebar-title{display:none!important}
@@ -5299,7 +5314,9 @@ html[data-ui="next"] .next-more-danger:hover{background:var(--bad-soft);color:va
   html[data-ui="next"] #nextMoreSheet.open .next-more-backdrop{opacity:1}
   html[data-ui="next"] #nextMoreSheet.open .next-more-panel{transform:translateY(0)}
   html[data-ui="next"] body.next-more-open{overflow:hidden}
-  html[data-ui="next"] .page-sidebar{top:70px!important}
+  /* 窄屏顶栏 60px：吸顶胶囊条紧跟其下沿，用变量而不是写死 70px，
+     否则顶栏与导航条之间会留一条 10px 的内容缝。 */
+  html[data-ui="next"] .page-sidebar{top:var(--next-nav-top,60px)!important}
   html[data-ui="next"] .next-topbar-actions .theme-dropdown{right:-4px!important}
   html[data-ui="next"] .realm-cards-grid{grid-template-columns:1fr 1fr!important}
   html[data-ui="next"] #cards{grid-template-columns:1fr 1fr!important}
@@ -5744,7 +5761,7 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
   <!-- 版本模型库与能力清单 -->
   <section id="gatewayModelsSection">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      <h2 style="margin:0">网关模型清单<em id="modelsRealmTag" style="color:var(--dim);font-weight:500"></em><em id="availModelCount"></em><span id="modelPickActions" class="page-nav-exclude" style="font-weight:400;margin-left:10px;white-space:nowrap"><button class="sec mini" onclick="applyModelPickAction('all')" title="把当前清单里的模型全部勾上（与「从未改过勾选」的默认态等价）">全选</button><button class="sec mini" onclick="applyModelPickAction('none')" title="取消全部勾选：DSH 等读取模型清单的客户端会被拦下，不会写出一份空清单">全不选</button><button class="sec mini" onclick="applyModelPickAction('invert')" title="按当前勾选状态取反：只想排除个别模型时比逐个点快">反选</button></span></h2>
+      <h2 class="models-head" style="margin:0"><span class="models-head-title">网关模型清单<em id="modelsRealmTag" style="color:var(--dim);font-weight:500"></em></span><span class="models-head-tail"><em id="availModelCount"></em><span id="modelPickActions" class="page-nav-exclude" style="font-weight:400;white-space:nowrap"><button class="sec mini" onclick="applyModelPickAction('all')" title="把当前清单里的模型全部勾上（与「从未改过勾选」的默认态等价）">全选</button><button class="sec mini" onclick="applyModelPickAction('none')" title="取消全部勾选：DSH 等读取模型清单的客户端会被拦下，不会写出一份空清单">全不选</button><button class="sec mini" onclick="applyModelPickAction('invert')" title="按当前勾选状态取反：只想排除个别模型时比逐个点快">反选</button></span></span></h2>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:12px;color:var(--dim)">展示当前视图下官方对话大模型、上下文容量、推理/视觉能力、思考控制、默认采样参数及在售倍率</div>
         <!-- 手动刷新：强制走一次上游 /v3/config（只在当前视图的版本上，用该
@@ -14177,8 +14194,28 @@ function pageNavSignature(page){
   return pageNavSections(page).map(function(sec, i){ return pageNavLabel(sec, i); }).join('\u0001');
 }
 
+/* 当前可见的顶部栏（新壳 #nextTopbar / 经典 <header>）实测高度。吸顶导航条、
+   区块标题、锚点跳转都以它为基准，写死值必然对不齐。 */
+function currentTopbarHeight(){
+  const topbar = document.getElementById('nextTopbar');
+  if(topbar && topbar.offsetHeight > 0 && getComputedStyle(topbar).display !== 'none'){
+    return topbar.offsetHeight;
+  }
+  const header = document.querySelector('header');
+  if(header && header.offsetHeight > 0 && getComputedStyle(header).display !== 'none'){
+    return header.offsetHeight;
+  }
+  return 0;
+}
+
 /* 跳转时要让开的距离：吸顶 header，窄屏下再加上同样吸顶的导航条本身 */
 function pageNavHeaderOffset(page){
+  // 新壳：二级导航是顶栏下方横向吸顶的一条胶囊行，跳转要让开「顶栏 + 导航条」
+  // 两段高度，否则区块标题会钻到胶囊条底下。
+  if(window.__NEXT_UI__){
+    const sidebar = page ? page.querySelector('.page-sidebar') : null;
+    return currentTopbarHeight() + (sidebar ? sidebar.offsetHeight : 0) + 12;
+  }
   const header = document.querySelector('header');
   const narrow = window.matchMedia('(max-width:860px)').matches;
   // 窄屏下二级导航条紧贴 header 底边（见 syncPageNavOffset），不再留 14px 缝，
@@ -14196,6 +14233,10 @@ function syncPageNavOffset(){
   const narrow = window.matchMedia('(max-width:860px)').matches;
   const top = (header ? header.offsetHeight : 64) + (narrow ? 0 : 14);
   document.documentElement.style.setProperty(PAGE_NAV_TOP_VAR, top + 'px');
+  // 新壳吸顶导航条的 top 跟着顶栏高度走（见 .page-sidebar 的 sticky 规则）。
+  if(window.__NEXT_UI__){
+    document.documentElement.style.setProperty('--next-nav-top', currentTopbarHeight() + 'px');
+  }
 }
 
 /* 区块标题吸顶的两件准备：
@@ -14215,13 +14256,23 @@ function syncSectionSticky(){
     const header = document.querySelector('header');
     if(header && header.offsetHeight > 0 && getComputedStyle(header).display !== 'none') bar = header;
   }
+
+  const page = document.querySelector('.main-page.active');
+  // 新壳的二级导航是顶栏下方横向吸顶的一条胶囊行：区块标题要钉在它下沿，
+  // 而不是顶栏下沿，否则会被胶囊条盖住。经典布局没有这条吸顶导航，加 0。
+  let navExtra = 0;
+  if(window.__NEXT_UI__ && page){
+    const sidebar = page.querySelector('.page-sidebar');
+    if(sidebar && sidebar.offsetHeight > 0 && getComputedStyle(sidebar).display !== 'none'){
+      navExtra = sidebar.offsetHeight;
+    }
+  }
   try {
     if(root && root.style && typeof root.style.setProperty === 'function'){
-      root.style.setProperty('--sticky-top', (bar ? bar.offsetHeight : 0) + 'px');
+      root.style.setProperty('--sticky-top', (bar ? bar.offsetHeight : 0) + navExtra + 'px');
     }
   } catch(e) {}
 
-  const page = document.querySelector('.main-page.active');
   if(!page) return;
   const capped = document.body.classList.contains('win-capped');
   // 窄屏一律不内部滚动（见 CSS 里的说明），所以全部区块都算「不超高」。
@@ -14459,6 +14510,10 @@ function initPageNav(page){
 
   page.classList.add('page-nav-on');
   page.dataset.pageNavSignature = signature;
+
+  // 导航条刚建好/换过项，高度可能变了（新壳的区块标题要钉在它下沿）。
+  // 重算一次 --sticky-top，避免首次进页面时标题被胶囊条盖住。
+  if(typeof syncSectionSticky === 'function') syncSectionSticky();
 
   if(!window.__pageNavBound){
     window.__pageNavBound = true;
