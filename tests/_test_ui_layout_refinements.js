@@ -63,4 +63,16 @@ assert.ok(script.includes("setProperty('--next-nav-top'"),
 assert.ok(script.includes('function currentTopbarHeight()'),
   '应有 currentTopbarHeight() 统一量顶栏高度');
 
+// 设置页二级分类胶囊条也要吸顶：设置页没有 .page-sidebar，用的是胶囊组。
+// 外面包一层通栏 stickybar 铺页面底色（胶囊盒是 fit-content，直接 sticky
+// 会让右侧露出滚上来的内容）。
+assert.ok(html.includes('class="next-settings-stickybar"'),
+  '设置页分类条应包在通栏 stickybar 里');
+assert.ok(/html\[data-ui="next"\] \.next-settings-stickybar\{[^}]*position:sticky;top:var\(--next-nav-top,68px\)/.test(html),
+  '设置页分类条应吸顶在顶栏下沿');
+assert.ok(/html\[data-ui="next"\] \.next-settings-stickybar\{[^}]*background:var\(--bg\)/.test(html),
+  '吸顶分类条要有不透明底色，盖住滚上来的内容');
+assert.ok(script.includes(".next-settings-stickybar"),
+  'syncSectionSticky 应把设置页分类条高度算进 --sticky-top');
+
 console.log('_test_ui_layout_refinements.js: all assertions passed');

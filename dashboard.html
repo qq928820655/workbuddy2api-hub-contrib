@@ -5039,8 +5039,19 @@ html[data-ui="next"] .next-switch-knob{
 }
 html[data-ui="next"] .next-switch[aria-checked="true"] .next-switch-knob{transform:translateX(16px)}
 html[data-ui="next"] .next-scheduler-section #btnToggleSched{display:none!important}
+/* 设置页的二级分类胶囊条：吸顶在顶栏下沿，滚动时一直可点，不用回顶部换分类。
+   胶囊盒本身是 width:fit-content，直接 sticky 会让右侧露出滚上来的内容，
+   所以外面包一层通栏 .next-settings-stickybar：它吸顶、铺页面底色、留出底部
+   间距（下边距折成 padding，横带才盖得住胶囊盒下方的缝隙），胶囊盒保持原样。
+   top 用 --next-nav-top（顶栏实测高度），z-index 压在区块标题吸顶（4/5）之上、
+   顶栏（30）之下。 */
+html[data-ui="next"] .next-settings-stickybar{
+  position:sticky;top:var(--next-nav-top,68px);z-index:20;
+  background:var(--bg);padding-bottom:16px;margin:0;
+}
 html[data-ui="next"] .next-settings-groups{
-  display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:0 0 16px;
+  display:flex;align-items:center;gap:4px;flex-wrap:wrap;
+  margin:0;
   padding:4px;background:var(--panel2);border:1px solid var(--line);border-radius:11px;
   width:fit-content;max-width:100%;
 }
@@ -6413,13 +6424,15 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
 
 
   <div id="pageSettings" class="main-page">
-    <div class="next-settings-groups" id="nextSettingsGroups">
-      <button type="button" class="next-settings-group active" data-settings-group="basic" onclick="nextSettingsGroup('basic', this)">基础</button>
-      <button type="button" class="next-settings-group" data-settings-group="api" onclick="nextSettingsGroup('api', this)">API 与出口</button>
-      <button type="button" class="next-settings-group" data-settings-group="model" onclick="nextSettingsGroup('model', this)">模型与定价</button>
-      <button type="button" class="next-settings-group" data-settings-group="automation" onclick="nextSettingsGroup('automation', this)">自动化</button>
-      <button type="button" class="next-settings-group" data-settings-group="stability" onclick="nextSettingsGroup('stability', this)">稳定性</button>
-      <button type="button" class="next-settings-group" data-settings-group="system" onclick="nextSettingsGroup('system', this)">日志与系统</button>
+    <div class="next-settings-stickybar">
+      <div class="next-settings-groups" id="nextSettingsGroups">
+        <button type="button" class="next-settings-group active" data-settings-group="basic" onclick="nextSettingsGroup('basic', this)">基础</button>
+        <button type="button" class="next-settings-group" data-settings-group="api" onclick="nextSettingsGroup('api', this)">API 与出口</button>
+        <button type="button" class="next-settings-group" data-settings-group="model" onclick="nextSettingsGroup('model', this)">模型与定价</button>
+        <button type="button" class="next-settings-group" data-settings-group="automation" onclick="nextSettingsGroup('automation', this)">自动化</button>
+        <button type="button" class="next-settings-group" data-settings-group="stability" onclick="nextSettingsGroup('stability', this)">稳定性</button>
+        <button type="button" class="next-settings-group" data-settings-group="system" onclick="nextSettingsGroup('system', this)">日志与系统</button>
+      </div>
     </div>
     <div class="next-settings-head">
       <h2 id="nextSettingsTitle">基础</h2>
@@ -14259,12 +14272,20 @@ function syncSectionSticky(){
 
   const page = document.querySelector('.main-page.active');
   // 新壳的二级导航是顶栏下方横向吸顶的一条胶囊行：区块标题要钉在它下沿，
-  // 而不是顶栏下沿，否则会被胶囊条盖住。经典布局没有这条吸顶导航，加 0。
+  // 而不是顶栏下沿，否则会被胶囊条盖住。设置页没有 .page-sidebar，用的是
+  // 另一条胶囊组 #nextSettingsGroups，同样吸顶，也要算进高度。经典布局没有
+  // 这两条吸顶导航，加 0。
   let navExtra = 0;
   if(window.__NEXT_UI__ && page){
     const sidebar = page.querySelector('.page-sidebar');
     if(sidebar && sidebar.offsetHeight > 0 && getComputedStyle(sidebar).display !== 'none'){
       navExtra = sidebar.offsetHeight;
+    } else {
+      // 设置页：吸顶的是包着胶囊盒的通栏 .next-settings-stickybar（含底部留白）。
+      const navwrap = page.querySelector('.next-settings-stickybar');
+      if(navwrap && navwrap.offsetHeight > 0 && getComputedStyle(navwrap).display !== 'none'){
+        navExtra = navwrap.offsetHeight;
+      }
     }
   }
   try {
