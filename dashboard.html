@@ -1026,14 +1026,23 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     gap:6px;padding:0;background:transparent;border:none;width:100%}
   #accountsBody .toolbar .tb-advanced .tb-bulk button.sec{width:100%;min-height:36px;
     padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  /* 号池筛选：下拉占一整行，两个「移入」按钮各占半行。这一组常显，但保留
-     [hidden] 兜底：display:flex 会压过 UA 的 [hidden]{display:none}，真需要
-     隐藏时得显式收回。 */
-  #accountsBody .toolbar .tb-pool{display:flex;flex-wrap:wrap;gap:6px;
-    width:100%;padding:4px}
+  /* 号池筛选：下拉与两个「移入」按钮同一行，下拉略宽、按钮等分剩余宽度。
+     两行会把账号列表再往下推一行，而这组只是三个窄控件，一行放得下。这一组
+     常显，但保留 [hidden] 兜底：display:grid 会压过 UA 的
+     [hidden]{display:none}，真需要隐藏时得显式收回。 */
+  #accountsBody .toolbar .tb-pool{display:grid;
+    grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr);
+    align-items:center;gap:6px;width:100%;padding:4px}
   #accountsBody .toolbar .tb-pool[hidden]{display:none}
-  #accountsBody .toolbar .tb-pool .pool-filter-select{flex:1 1 100%;width:100%}
-  #accountsBody .toolbar .tb-pool button.sec{flex:1 1 calc(50% - 3px)}
+  /* 自定义下拉把原生 select 包进 .cs-wrap，真正上屏的是 .cs-trigger（默认比
+     按钮矮 9px）。这里把包装层拉满格宽、触发器对齐 36px，三个控件才落在同一条
+     基线上。 */
+  #accountsBody .toolbar .tb-pool .cs-wrap{display:block;width:100%;min-width:0}
+  #accountsBody .toolbar .tb-pool .cs-trigger{height:36px;box-sizing:border-box}
+  #accountsBody .toolbar .tb-pool .pool-filter-select{width:100%;min-width:0;
+    min-height:36px}
+  #accountsBody .toolbar .tb-pool button.sec{width:100%;min-width:0;min-height:36px;
+    padding:6px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* Forms stack */
   #pageSettings section > div[style*="display:flex"]{flex-wrap:wrap}
   #pageSettings input:not([type=checkbox]), #pageSettings select{min-height:40px;font-size:13px}
