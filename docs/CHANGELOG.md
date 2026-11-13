@@ -1,3 +1,9 @@
+## Unreleased
+
+- **窄屏筛选条恢复横排，搜索框不再被撑成空白块**：`@media (max-width:700px)` 里的 `flex-direction:column` 让 `.console-search` 的 `flex:1 1 220px` 中的 220px 从宽度基准变成高度基准，390px 视口下搜索框渲染成 314×220 空白块、筛选条高 426px，账号列表被顶出首屏。改为搜索框独占一行（`flex:1 1 100%` + `height:auto`）、下拉每行两个（`flex:1 1 40%` + `min-width:120px`）。实测 390px：搜索框 314×32、筛选条 175px。
+- 新增 `tests/_test_filterbar_mobile_layout.js`（8 断言）钉住 700px 断点内不得出现纵向堆叠，且搜索框须显式 `height:auto`。
+- 全量测试：**307 个套件：229 个 Python + 78 个 JS**。
+
 ## v2.1.3
 
 - **CodeArts 并发占满改为有界排队**（#886 / #887）：单账号并发槽被占满时最多等待 `busy_wait_seconds`（默认 10 秒，范围 0–120），名额释放通过 `Condition` 立即唤醒；超时返回可重试的 429 `rate_limit_error` 并带 `reset_at`，不再误报 502「没有可用的账号」。真正空池 / 全停用 / 全冷却仍提示添加账号；多账号仍优先选空闲账号。
